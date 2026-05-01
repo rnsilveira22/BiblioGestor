@@ -2,7 +2,7 @@ import sqlite3
 import pandas as pd
 import os
 
-PLANILHA = "BIBLIOTECA_-_LIVROS_2026__2_.xlsx"  # ajuste o nome se necessário
+PLANILHA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BIBLIOTECA_-_LIVROS_2026__2_.xlsx")
 DB_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "biblioteca.db")
 
 ABAS = {

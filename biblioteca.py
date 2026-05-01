@@ -3,6 +3,10 @@ from tkinter import ttk, messagebox
 import sqlite3
 from datetime import datetime, date, timedelta
 import os
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
 
 # ─── BANCO DE DADOS ────────────────────────────────────────────────────────────
 
@@ -47,6 +51,9 @@ def init_db():
             FOREIGN KEY(livro_id)    REFERENCES livros(id),
             FOREIGN KEY(associado_id) REFERENCES associados(id)
         );
+        CREATE INDEX IF NOT EXISTS idx_emprestimos_devolucao ON emprestimos(data_devolucao, data_prevista);
+        CREATE INDEX IF NOT EXISTS idx_livros_titulo ON livros(titulo);
+        CREATE INDEX IF NOT EXISTS idx_associados_nome ON associados(nome);
         """)
     migrate_db()
 
@@ -72,6 +79,10 @@ def migrate_db():
         if "pelo_espirito" not in cols_liv:
             c.execute("ALTER TABLE livros ADD COLUMN pelo_espirito TEXT")
 
+        c.execute("CREATE INDEX IF NOT EXISTS idx_emprestimos_devolucao ON emprestimos(data_devolucao, data_prevista)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_livros_titulo ON livros(titulo)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_associados_nome ON associados(nome)")
+
 # ─── UTILITÁRIOS ───────────────────────────────────────────────────────────────
 
 def hoje():
@@ -82,7 +93,7 @@ def fmt(d):
         return ""
     try:
         return datetime.strptime(d, "%Y-%m-%d").strftime("%d/%m/%Y")
-    except:
+    except (ValueError, TypeError):
         return d
 
 def calcular_multa(data_prevista, data_devolucao=None):
@@ -127,6 +138,7 @@ class App(tk.Tk):
         self.geometry("1100x680")
         self.minsize(900, 600)
         self.configure(bg=COR_FUNDO)
+        _style_tree()
         init_db()
         self._build_ui()
 
@@ -144,7 +156,7 @@ class App(tk.Tk):
         ttk.Separator(sidebar, orient="horizontal").pack(fill="x", padx=16, pady=4)
 
         self.frames = {}
-        self.nav_buttons = []
+        self.nav_buttons = {}
 
         menus = [
             ("🏠  Painel",        PainelFrame),
@@ -167,8 +179,8 @@ class App(tk.Tk):
             self.frames[name].tkraise()
             if hasattr(self.frames[name], "refresh"):
                 self.frames[name].refresh()
-            for b in self.nav_buttons:
-                b.config(bg=COR_AZUL if b.cget("text").strip() == name.strip() else COR_PAINEL)
+            for menu_name, btn in self.nav_buttons.items():
+                btn.config(bg=COR_AZUL if menu_name == name else COR_PAINEL)
 
         for name, _ in menus:
             b = tk.Button(sidebar, text=name, anchor="w",
@@ -178,7 +190,7 @@ class App(tk.Tk):
                           activebackground=COR_AZUL, activeforeground="white",
                           cursor="hand2", bd=0)
             b.pack(fill="x")
-            self.nav_buttons.append(b)
+            self.nav_buttons[name] = b
 
         nav("🏠  Painel")
 
@@ -237,7 +249,6 @@ class PainelFrame(tk.Frame):
         for col in cols:
             tv.heading(col, text=col)
             tv.column(col, width=220 if col in ("Livro", "Associado") else 120, anchor="center")
-        _style_tree(tv)
 
         with get_conn() as c:
             rows = c.execute("""
@@ -295,7 +306,6 @@ class LivrosFrame(tk.Frame):
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col, command=lambda c=col: self._sort(c))
             self.tv.column(col, width=w, anchor="w" if col in ("Título", "Autor", "Pelo Espírito") else "center")
-        _style_tree(self.tv)
 
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
@@ -311,12 +321,16 @@ class LivrosFrame(tk.Frame):
         q = self.busca_var.get().strip().lower() if hasattr(self, "busca_var") else ""
         self.tv.delete(*self.tv.get_children())
         with get_conn() as c:
-            rows = c.execute(
-                "SELECT id, numero, titulo, autor, pelo_espirito, categoria, exemplares, disponivel FROM livros"
-            ).fetchall()
-        if q:
-            rows = [r for r in rows if q in (r[2] or "").lower() or q in (r[3] or "").lower()
-                    or q in (r[5] or "").lower() or q in (r[1] or "").lower()]
+            if q:
+                rows = c.execute(
+                    "SELECT id, numero, titulo, autor, pelo_espirito, categoria, exemplares, disponivel FROM livros "
+                    "WHERE LOWER(titulo) LIKE ? OR LOWER(autor) LIKE ? OR LOWER(categoria) LIKE ? OR LOWER(numero) LIKE ?",
+                    (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    "SELECT id, numero, titulo, autor, pelo_espirito, categoria, exemplares, disponivel FROM livros"
+                ).fetchall()
         if self._sort_col:
             idx = ["ID","Número","Título","Autor","Pelo Espírito","Categoria","Exemplares","Disponíveis"].index(self._sort_col)
             rows.sort(key=lambda r: str(r[idx]).lower(), reverse=self._sort_rev)
@@ -351,7 +365,7 @@ class LivrosFrame(tk.Frame):
                 return
             try:
                 ex = int(entries["exemplares"].get() or 1)
-            except:
+            except (ValueError, TypeError):
                 ex = 1
             with get_conn() as c:
                 if dados:
@@ -360,12 +374,14 @@ class LivrosFrame(tk.Frame):
                               (entries["numero"].get(), t, a,
                                entries["pelo_espirito"].get(),
                                entries["categoria"].get(), ex, dados["id"]))
+                    logger.info("Livro ID=%d atualizado: '%s'", dados["id"], t)
                 else:
-                    c.execute("""INSERT INTO livros(numero,titulo,autor,pelo_espirito,
+                    cursor = c.execute("""INSERT INTO livros(numero,titulo,autor,pelo_espirito,
                               categoria,exemplares,disponivel) VALUES(?,?,?,?,?,?,?)""",
                               (entries["numero"].get(), t, a,
                                entries["pelo_espirito"].get(),
                                entries["categoria"].get(), ex, ex))
+                    logger.info("Livro ID=%d criado: '%s'", cursor.lastrowid, t)
             win.destroy()
             self.refresh()
 
@@ -391,10 +407,18 @@ class LivrosFrame(tk.Frame):
             messagebox.showinfo("Aviso", "Selecione um livro.")
             return
         lid = self.tv.item(sel[0])["values"][0]
+        with get_conn() as c:
+            emprestimos_ativos = c.execute(
+                "SELECT COUNT(*) FROM emprestimos WHERE livro_id=? AND data_devolucao IS NULL", (lid,)
+            ).fetchone()[0]
+            if emprestimos_ativos > 0:
+                messagebox.showwarning("Aviso", "Não é possível excluir um livro com empréstimos em aberto.")
+                return
         if not messagebox.askyesno("Confirmar", "Excluir este livro?"):
             return
         with get_conn() as c:
             c.execute("DELETE FROM livros WHERE id=?", (lid,))
+        logger.info("Livro ID=%d excluído", lid)
         self.refresh()
 
 # ─── ASSOCIADOS ────────────────────────────────────────────────────────────────
@@ -432,7 +456,6 @@ class AssociadosFrame(tk.Frame):
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col)
             self.tv.column(col, width=w, anchor="w" if col in ("Nome", "Email") else "center")
-        _style_tree(self.tv)
 
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
@@ -442,12 +465,17 @@ class AssociadosFrame(tk.Frame):
     def refresh(self):
         q = self.busca_var.get().strip().lower() if hasattr(self, "busca_var") else ""
         self.tv.delete(*self.tv.get_children())
-        with get_conn() as c:
-            rows = c.execute(
-                "SELECT id,nome,tipo,matricula,telefone,email FROM associados WHERE ativo=1"
-            ).fetchall()
         if q:
-            rows = [r for r in rows if q in r[1].lower() or q in (r[3] or "").lower()]
+            with get_conn() as c:
+                rows = c.execute(
+                    "SELECT id,nome,tipo,matricula,telefone,email FROM associados WHERE ativo=1 AND (LOWER(nome) LIKE ? OR LOWER(matricula) LIKE ?)",
+                    (f"%{q}%", f"%{q}%")
+                ).fetchall()
+        else:
+            with get_conn() as c:
+                rows = c.execute(
+                    "SELECT id,nome,tipo,matricula,telefone,email FROM associados WHERE ativo=1"
+                ).fetchall()
         for r in rows:
             self.tv.insert("", "end", values=r)
 
@@ -483,10 +511,12 @@ class AssociadosFrame(tk.Frame):
                     c.execute("UPDATE associados SET nome=?,tipo=?,matricula=?,telefone=?,email=? WHERE id=?",
                               (nome, entries["tipo"].get(), entries["matricula"].get(),
                                entries["telefone"].get(), entries["email"].get(), dados["id"]))
+                    logger.info("Associado ID=%d atualizado: '%s'", dados["id"], nome)
                 else:
-                    c.execute("INSERT INTO associados(nome,tipo,matricula,telefone,email) VALUES(?,?,?,?,?)",
+                    cursor = c.execute("INSERT INTO associados(nome,tipo,matricula,telefone,email) VALUES(?,?,?,?,?)",
                               (nome, entries["tipo"].get(), entries["matricula"].get(),
                                entries["telefone"].get(), entries["email"].get()))
+                    logger.info("Associado ID=%d criado: '%s'", cursor.lastrowid, nome)
             win.destroy()
             self.refresh()
 
@@ -586,7 +616,6 @@ class EmprestimosFrame(tk.Frame):
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col)
             self.tv.column(col, width=w, anchor="w" if col in ("Livro", "Associado") else "center")
-        _style_tree(self.tv)
 
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
@@ -676,15 +705,17 @@ class EmprestimosFrame(tk.Frame):
             return
         try:
             prazo = int(self.prazo_var.get())
-        except:
+        except (ValueError, TypeError):
             prazo = PRAZO_DIAS
         prev = (date.today() + timedelta(days=prazo)).strftime("%Y-%m-%d")
         with get_conn() as c:
-            c.execute("""INSERT INTO emprestimos(livro_id, associado_id, data_emprestimo, data_prevista)
+            cursor = c.execute("""INSERT INTO emprestimos(livro_id, associado_id, data_emprestimo, data_prevista)
                          VALUES(?,?,?,?)""",
                       (self._livro_selecionado_id, self._usuario_selecionado_id, hoje(), prev))
             c.execute("UPDATE livros SET disponivel = disponivel - 1 WHERE id=?",
                       (self._livro_selecionado_id,))
+        logger.info("Empréstimo ID=%d: livro_id=%d, associado_id=%d, devolucao=%s",
+                    cursor.lastrowid, self._livro_selecionado_id, self._usuario_selecionado_id, prev)
         messagebox.showinfo("Sucesso", f"Empréstimo registrado!\nDevolução prevista: {fmt(prev)}")
         self.livro_var.set("")
         self.usuario_var.set("")
@@ -711,7 +742,6 @@ class DevolucoesFrame(tk.Frame):
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col)
             self.tv.column(col, width=w, anchor="w" if col in ("Livro", "Associado") else "center")
-        _style_tree(self.tv)
 
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
@@ -764,11 +794,13 @@ class DevolucoesFrame(tk.Frame):
             c.execute("UPDATE emprestimos SET data_devolucao=?, multa=? WHERE id=?",
                       (hoje(), multa, eid))
             c.execute("UPDATE livros SET disponivel = disponivel + 1 WHERE id=?", (lid,))
+        logger.info("Devolução ID=%d: livro_id=%d, multa=R$%.2f", eid, lid, multa)
         if multa > 0:
             pago = messagebox.askyesno("Multa", f"Multa de R$ {multa:.2f}. Já foi paga?")
             if pago:
                 with get_conn() as c:
                     c.execute("UPDATE emprestimos SET multa_paga=1 WHERE id=?", (eid,))
+                logger.info("Multa paga para empréstimo ID=%d", eid)
         messagebox.showinfo("Sucesso", "Devolução registrada com sucesso!")
         self.refresh()
 
@@ -809,7 +841,6 @@ class RelatoriosFrame(tk.Frame):
         for col in cols:
             self.tv_hist.heading(col, text=col)
             self.tv_hist.column(col, width=180 if col in ("Livro","Associado") else 110, anchor="center")
-        _style_tree(self.tv_hist)
         sb = ttk.Scrollbar(f, orient="vertical", command=self.tv_hist.yview)
         self.tv_hist.configure(yscrollcommand=sb.set)
         self.tv_hist.pack(side="left", fill="both", expand=True)
@@ -846,7 +877,6 @@ class RelatoriosFrame(tk.Frame):
         for col in cols:
             self.tv_atr.heading(col, text=col)
             self.tv_atr.column(col, width=150, anchor="center")
-        _style_tree(self.tv_atr)
         sb = ttk.Scrollbar(f, orient="vertical", command=self.tv_atr.yview)
         self.tv_atr.configure(yscrollcommand=sb.set)
         self.tv_atr.pack(side="left", fill="both", expand=True)
@@ -861,7 +891,6 @@ class RelatoriosFrame(tk.Frame):
         for col in cols:
             self.tv_multas.heading(col, text=col)
             self.tv_multas.column(col, width=150, anchor="center")
-        _style_tree(self.tv_multas)
         sb = ttk.Scrollbar(f, orient="vertical", command=self.tv_multas.yview)
         self.tv_multas.configure(yscrollcommand=sb.set)
         self.tv_multas.pack(side="left", fill="both", expand=True)
@@ -890,7 +919,6 @@ class RelatoriosFrame(tk.Frame):
             self.tv_pop.heading(col, text=col)
             self.tv_pop.column(col, width=260 if col != "Total Empréstimos" else 160,
                                anchor="w" if col != "Total Empréstimos" else "center")
-        _style_tree(self.tv_pop)
         sb = ttk.Scrollbar(f, orient="vertical", command=self.tv_pop.yview)
         self.tv_pop.configure(yscrollcommand=sb.set)
         self.tv_pop.pack(side="left", fill="both", expand=True)
@@ -952,7 +980,7 @@ def _modal(parent, titulo):
     win.geometry("+%d+%d" % (parent.winfo_rootx()+120, parent.winfo_rooty()+80))
     return win
 
-def _style_tree(tv):
+def _style_tree():
     style = ttk.Style()
     style.theme_use("clam")
     style.configure("Treeview", background=COR_CARD, foreground=COR_TEXTO,

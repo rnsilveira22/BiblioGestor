@@ -46,7 +46,7 @@ def importar():
 
                 try:
                     qtd = int(float(row.get(col_qtd, 1) or 1))
-                except:
+                except (ValueError, TypeError):
                     qtd = 1
 
                 existe = conn.execute(

@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 DB_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "biblioteca.db")
 PRAZO_DIAS = 14
-MULTA_DIA  = 0.50
 
 def get_conn():
     return sqlite3.connect(DB_FILE)
@@ -46,8 +45,6 @@ def init_db():
             data_emprestimo TEXT NOT NULL,
             data_prevista   TEXT NOT NULL,
             data_devolucao  TEXT,
-            multa           REAL DEFAULT 0,
-            multa_paga      INTEGER DEFAULT 0,
             FOREIGN KEY(livro_id)    REFERENCES livros(id),
             FOREIGN KEY(associado_id) REFERENCES associados(id)
         );
@@ -96,10 +93,6 @@ def fmt(d):
     except (ValueError, TypeError):
         return d
 
-def calcular_multa(data_prevista, data_devolucao=None):
-    prev = datetime.strptime(data_prevista, "%Y-%m-%d").date()
-    dev  = datetime.strptime(data_devolucao, "%Y-%m-%d").date() if data_devolucao else date.today()
-    return round(max(0, (dev - prev).days) * MULTA_DIA, 2)
 
 # ─── ESTILO GLOBAL ─────────────────────────────────────────────────────────────
 
@@ -222,16 +215,12 @@ class PainelFrame(tk.Frame):
             atrasados    = c.execute(
                 "SELECT COUNT(*) FROM emprestimos WHERE data_devolucao IS NULL AND data_prevista < ?",
                 (hoje(),)).fetchone()[0]
-            multas_pend  = c.execute(
-                "SELECT COALESCE(SUM(multa),0) FROM emprestimos WHERE multa>0 AND multa_paga=0"
-            ).fetchone()[0]
 
         cards = [
             ("📚 Livros\nCadastrados",   tot_livros,  COR_AZUL),
             ("👤 Associados\nAtivos",    tot_assoc,   COR_VERDE),
             ("🔄 Empréstimos\nAbertos",  em_aberto,   COR_LARANJA),
             ("⚠️ Em Atraso",            atrasados,   COR_VERMELHO),
-            ("💰 Multas\nPendentes",     f"R$ {multas_pend:.2f}", "#9b59b6"),
         ]
 
         for i, (titulo, valor, cor) in enumerate(cards):
@@ -736,9 +725,9 @@ class DevolucoesFrame(tk.Frame):
         top.pack(fill="x", padx=30, pady=(20, 10))
         label(top, "↩️  Registrar Devolução", bold=True, font=FONTE_TITULO).pack(side="left")
 
-        cols = ("ID", "Livro", "Associado", "Emprestado em", "Prevista", "Multa", "Status")
+        cols = ("ID", "Livro", "Associado", "Emprestado em", "Prevista", "Status")
         self.tv = ttk.Treeview(self, columns=cols, show="headings", height=18)
-        widths = [40, 240, 160, 110, 110, 80, 100]
+        widths = [40, 240, 160, 110, 110, 100]
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col)
             self.tv.column(col, width=w, anchor="w" if col in ("Livro", "Associado") else "center")
@@ -766,12 +755,10 @@ class DevolucoesFrame(tk.Frame):
                 ORDER BY e.data_prevista
             """).fetchall()
         for eid, titulo, nome, emp, prev, lid in rows:
-            multa  = calcular_multa(prev)
             status = "✅ OK" if prev >= hoje() else f"⚠️ {(date.today()-datetime.strptime(prev,'%Y-%m-%d').date()).days}d atraso"
             tag    = "ok" if prev >= hoje() else "late"
             self.tv.insert("", "end",
-                           values=(eid, titulo, nome, fmt(emp), fmt(prev),
-                                   f"R$ {multa:.2f}" if multa else "-", status),
+                           values=(eid, titulo, nome, fmt(emp), fmt(prev), status),
                            tags=(tag,))
         self.tv.tag_configure("late", foreground=COR_VERMELHO)
 
@@ -781,26 +768,13 @@ class DevolucoesFrame(tk.Frame):
             messagebox.showinfo("Aviso", "Selecione um empréstimo.")
             return
         eid = self.tv.item(sel[0])["values"][0]
-        with get_conn() as c:
-            emp = c.execute("SELECT livro_id, data_prevista FROM emprestimos WHERE id=?", (eid,)).fetchone()
-        lid, data_prev = emp
-        multa = calcular_multa(data_prev)
-        msg = "Confirmar devolução?"
-        if multa > 0:
-            msg += f"\n\n⚠️ Multa por atraso: R$ {multa:.2f}"
-        if not messagebox.askyesno("Confirmar Devolução", msg):
+        if not messagebox.askyesno("Confirmar Devolução", "Confirmar devolução?"):
             return
         with get_conn() as c:
-            c.execute("UPDATE emprestimos SET data_devolucao=?, multa=? WHERE id=?",
-                      (hoje(), multa, eid))
+            lid = c.execute("SELECT livro_id FROM emprestimos WHERE id=?", (eid,)).fetchone()[0]
+            c.execute("UPDATE emprestimos SET data_devolucao=? WHERE id=?", (hoje(), eid))
             c.execute("UPDATE livros SET disponivel = disponivel + 1 WHERE id=?", (lid,))
-        logger.info("Devolução ID=%d: livro_id=%d, multa=R$%.2f", eid, lid, multa)
-        if multa > 0:
-            pago = messagebox.askyesno("Multa", f"Multa de R$ {multa:.2f}. Já foi paga?")
-            if pago:
-                with get_conn() as c:
-                    c.execute("UPDATE emprestimos SET multa_paga=1 WHERE id=?", (eid,))
-                logger.info("Multa paga para empréstimo ID=%d", eid)
+        logger.info("Devolução ID=%d: livro_id=%d", eid, lid)
         messagebox.showinfo("Sucesso", "Devolução registrada com sucesso!")
         self.refresh()
 
@@ -819,7 +793,6 @@ class RelatoriosFrame(tk.Frame):
         tabs.pack(fill="both", expand=True, padx=30, pady=(0, 20))
         self._tab_historico(tabs)
         self._tab_atrasados(tabs)
-        self._tab_multas(tabs)
         self._tab_livros_pop(tabs)
 
     def _tab_historico(self, tabs):
@@ -836,7 +809,7 @@ class RelatoriosFrame(tk.Frame):
         b = tk.Button(ff, text="🔍 Filtrar", command=self._load_historico)
         style_btn(b); b.pack(side="left")
 
-        cols = ("ID", "Livro", "Associado", "Emprestado", "Prevista", "Devolvido", "Multa", "Paga")
+        cols = ("ID", "Livro", "Associado", "Emprestado", "Prevista", "Devolvido")
         self.tv_hist = ttk.Treeview(f, columns=cols, show="headings", height=18)
         for col in cols:
             self.tv_hist.heading(col, text=col)
@@ -853,7 +826,7 @@ class RelatoriosFrame(tk.Frame):
         with get_conn() as c:
             rows = c.execute("""
                 SELECT e.id, l.titulo, a.nome, e.data_emprestimo, e.data_prevista,
-                       e.data_devolucao, e.multa, e.multa_paga
+                       e.data_devolucao
                 FROM emprestimos e
                 JOIN livros l ON l.id=e.livro_id
                 JOIN associados a ON a.id=e.associado_id
@@ -861,18 +834,16 @@ class RelatoriosFrame(tk.Frame):
                 ORDER BY e.id DESC
             """, (uq, lq)).fetchall()
         for r in rows:
-            eid, titulo, nome, emp, prev, dev, multa, paga = r
+            eid, titulo, nome, emp, prev, dev = r
             self.tv_hist.insert("", "end", values=(
                 eid, titulo, nome, fmt(emp), fmt(prev),
-                fmt(dev) if dev else "Em aberto",
-                f"R$ {multa:.2f}" if multa else "-",
-                "Sim" if paga else ("Não" if multa else "-")
+                fmt(dev) if dev else "Em aberto"
             ))
 
     def _tab_atrasados(self, tabs):
         f = tk.Frame(tabs, bg=COR_FUNDO)
         tabs.add(f, text="  Em Atraso  ")
-        cols = ("ID", "Livro", "Associado", "Prevista", "Dias Atraso", "Multa Atual")
+        cols = ("ID", "Livro", "Associado", "Prevista", "Dias Atraso")
         self.tv_atr = ttk.Treeview(f, columns=cols, show="headings", height=20)
         for col in cols:
             self.tv_atr.heading(col, text=col)
@@ -882,33 +853,6 @@ class RelatoriosFrame(tk.Frame):
         self.tv_atr.pack(side="left", fill="both", expand=True)
         sb.pack(side="left", fill="y")
         self._tv_atr = self.tv_atr
-
-    def _tab_multas(self, tabs):
-        f = tk.Frame(tabs, bg=COR_FUNDO)
-        tabs.add(f, text="  Multas Pendentes  ")
-        cols = ("ID", "Livro", "Associado", "Devolvido", "Multa", "Paga")
-        self.tv_multas = ttk.Treeview(f, columns=cols, show="headings", height=18)
-        for col in cols:
-            self.tv_multas.heading(col, text=col)
-            self.tv_multas.column(col, width=150, anchor="center")
-        sb = ttk.Scrollbar(f, orient="vertical", command=self.tv_multas.yview)
-        self.tv_multas.configure(yscrollcommand=sb.set)
-        self.tv_multas.pack(side="left", fill="both", expand=True)
-        sb.pack(side="left", fill="y")
-        btn_frame = tk.Frame(f, bg=COR_FUNDO)
-        btn_frame.pack(fill="x", pady=8, padx=8)
-        b = tk.Button(btn_frame, text="✅  Marcar Multa Selecionada como Paga",
-                      command=self._pagar_multa)
-        style_btn(b, COR_VERDE); b.pack(side="left")
-
-    def _pagar_multa(self):
-        sel = self.tv_multas.selection()
-        if not sel: return
-        eid = self.tv_multas.item(sel[0])["values"][0]
-        with get_conn() as c:
-            c.execute("UPDATE emprestimos SET multa_paga=1 WHERE id=?", (eid,))
-        messagebox.showinfo("Sucesso", "Multa registrada como paga.")
-        self.refresh()
 
     def _tab_livros_pop(self, tabs):
         f = tk.Frame(tabs, bg=COR_FUNDO)
@@ -938,25 +882,8 @@ class RelatoriosFrame(tk.Frame):
                 ORDER BY e.data_prevista
             """, (hoje(),)).fetchall()
         for eid, titulo, nome, prev in rows:
-            dias  = (date.today() - datetime.strptime(prev, "%Y-%m-%d").date()).days
-            multa = calcular_multa(prev)
-            self._tv_atr.insert("", "end", values=(eid, titulo, nome, fmt(prev), dias, f"R$ {multa:.2f}"))
-
-        self.tv_multas.delete(*self.tv_multas.get_children())
-        with get_conn() as c:
-            rows = c.execute("""
-                SELECT e.id, l.titulo, a.nome, e.data_devolucao, e.multa, e.multa_paga
-                FROM emprestimos e
-                JOIN livros l ON l.id=e.livro_id
-                JOIN associados a ON a.id=e.associado_id
-                WHERE e.multa > 0
-                ORDER BY e.multa_paga, e.multa DESC
-            """).fetchall()
-        for eid, titulo, nome, dev, multa, paga in rows:
-            self.tv_multas.insert("", "end", values=(
-                eid, titulo, nome, fmt(dev) if dev else "Em aberto",
-                f"R$ {multa:.2f}", "✅ Sim" if paga else "❌ Não"
-            ))
+            dias = (date.today() - datetime.strptime(prev, "%Y-%m-%d").date()).days
+            self._tv_atr.insert("", "end", values=(eid, titulo, nome, fmt(prev), dias))
 
         self.tv_pop.delete(*self.tv_pop.get_children())
         with get_conn() as c:

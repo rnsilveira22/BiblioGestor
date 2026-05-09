@@ -4,6 +4,11 @@ import sqlite3
 from datetime import datetime, date, timedelta
 import os
 import logging
+try:
+    from PIL import Image, ImageTk
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -38,19 +43,41 @@ def init_db():
             email     TEXT,
             ativo     INTEGER DEFAULT 1
         );
+        CREATE TABLE IF NOT EXISTS dependentes (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            associado_id  INTEGER NOT NULL,
+            nome          TEXT NOT NULL,
+            parentesco    TEXT,
+            telefone      TEXT,
+            email         TEXT,
+            ativo         INTEGER DEFAULT 1,
+            FOREIGN KEY(associado_id) REFERENCES associados(id)
+        );
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome      TEXT NOT NULL,
+            usuario   TEXT NOT NULL UNIQUE,
+            senha     TEXT NOT NULL,
+            tipo      TEXT DEFAULT 'Operador',
+            ativo     INTEGER DEFAULT 1
+        );
         CREATE TABLE IF NOT EXISTS emprestimos (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             livro_id        INTEGER NOT NULL,
-            associado_id    INTEGER NOT NULL,
+            associado_id    INTEGER,
+            dependente_id  INTEGER,
             data_emprestimo TEXT NOT NULL,
             data_prevista   TEXT NOT NULL,
             data_devolucao  TEXT,
             FOREIGN KEY(livro_id)    REFERENCES livros(id),
-            FOREIGN KEY(associado_id) REFERENCES associados(id)
+            FOREIGN KEY(associado_id) REFERENCES associados(id),
+            FOREIGN KEY(dependente_id) REFERENCES dependentes(id)
         );
         CREATE INDEX IF NOT EXISTS idx_emprestimos_devolucao ON emprestimos(data_devolucao, data_prevista);
         CREATE INDEX IF NOT EXISTS idx_livros_titulo ON livros(titulo);
         CREATE INDEX IF NOT EXISTS idx_associados_nome ON associados(nome);
+        CREATE INDEX IF NOT EXISTS idx_dependentes_nome ON dependentes(nome);
+        CREATE INDEX IF NOT EXISTS idx_usuarios_usuario ON usuarios(usuario);
         """)
     migrate_db()
 
@@ -59,26 +86,67 @@ def migrate_db():
         tabelas = [r[0] for r in c.execute(
             "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
 
+        # Migração antiga: usuarios -> associados
         if "usuarios" in tabelas and "associados" in tabelas:
             count = c.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0]
             if count > 0:
-                c.execute("""INSERT OR IGNORE INTO associados(id,nome,tipo,matricula,telefone,email,ativo)
-                             SELECT id,nome,tipo,matricula,telefone,email,ativo FROM usuarios""")
+                c.execute("""INSERT OR IGNORE INTO associados(id,nome,tipo,telefone,email,ativo)
+                             SELECT id,nome,tipo,'','',ativo FROM usuarios""")
 
+        # Adicionar coluna associado_id se não existir
         cols_emp = [r[1] for r in c.execute("PRAGMA table_info(emprestimos)").fetchall()]
         if "usuario_id" in cols_emp and "associado_id" not in cols_emp:
             c.execute("ALTER TABLE emprestimos ADD COLUMN associado_id INTEGER")
             c.execute("UPDATE emprestimos SET associado_id = usuario_id WHERE associado_id IS NULL")
+        if "associado_id" not in cols_emp:
+            c.execute("ALTER TABLE emprestimos ADD COLUMN associado_id INTEGER")
+        if "dependente_id" not in cols_emp:
+            c.execute("ALTER TABLE emprestimos ADD COLUMN dependente_id INTEGER")
 
+        # Adicionar colunas em livros se não existirem
         cols_liv = [r[1] for r in c.execute("PRAGMA table_info(livros)").fetchall()]
         if "numero" not in cols_liv:
             c.execute("ALTER TABLE livros ADD COLUMN numero TEXT")
         if "pelo_espirito" not in cols_liv:
             c.execute("ALTER TABLE livros ADD COLUMN pelo_espirito TEXT")
 
+        # Criar tabela dependentes se não existir
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS dependentes (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                associado_id  INTEGER NOT NULL,
+                nome          TEXT NOT NULL,
+                parentesco    TEXT,
+                telefone      TEXT,
+                email         TEXT,
+                ativo         INTEGER DEFAULT 1,
+                FOREIGN KEY(associado_id) REFERENCES associados(id)
+            )
+        """)
+
+        # Criar tabela usuarios (acesso ao sistema) se não existir
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome      TEXT NOT NULL,
+                usuario   TEXT NOT NULL UNIQUE,
+                senha     TEXT NOT NULL,
+                tipo      TEXT DEFAULT 'Operador',
+                ativo     INTEGER DEFAULT 1
+            )
+        """)
+
+        # Criar usuário admin padrão se não houver nenhum usuário
+        count_usuarios = c.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0]
+        if count_usuarios == 0:
+            c.execute("INSERT INTO usuarios(nome, usuario, senha, tipo) VALUES(?,?,?,?)",
+                      ("Administrador", "admin", "admin123", "Administrador"))
+
         c.execute("CREATE INDEX IF NOT EXISTS idx_emprestimos_devolucao ON emprestimos(data_devolucao, data_prevista)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_livros_titulo ON livros(titulo)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_associados_nome ON associados(nome)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_dependentes_nome ON dependentes(nome)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_usuario ON usuarios(usuario)")
 
 # ─── UTILITÁRIOS ───────────────────────────────────────────────────────────────
 
@@ -96,15 +164,16 @@ def fmt(d):
 
 # ─── ESTILO GLOBAL ─────────────────────────────────────────────────────────────
 
-COR_FUNDO    = "#1e2533"
-COR_PAINEL   = "#252d3d"
-COR_CARD     = "#2e3a50"
-COR_AZUL     = "#4a90d9"
-COR_VERDE    = "#3cb371"
-COR_LARANJA  = "#e07b39"
-COR_VERMELHO = "#d94a4a"
-COR_TEXTO    = "#e8eaf0"
-COR_SUBTEXTO = "#8899aa"
+# Paleta Verde Oliva
+COR_FUNDO    = "#2d3319"
+COR_PAINEL   = "#3a4420"
+COR_CARD     = "#4a5530"
+COR_AZUL     = "#6b8e23"
+COR_VERDE    = "#556b2f"
+COR_LARANJA  = "#8b9a5b"
+COR_VERMELHO = "#8b4513"
+COR_TEXTO    = "#f5f5dc"
+COR_SUBTEXTO = "#b8b884"
 FONTE        = ("Segoe UI", 10)
 FONTE_BOLD   = ("Segoe UI", 10, "bold")
 FONTE_TITULO = ("Segoe UI", 14, "bold")
@@ -122,20 +191,100 @@ def label(parent, text, cor=COR_TEXTO, bold=False, font=None, **kw):
     f = font if font else (FONTE_BOLD if bold else FONTE)
     return tk.Label(parent, text=text, bg=parent["bg"], fg=cor, font=f, **kw)
 
+# ─── LOGIN ──────────────────────────────────────────────────────────────────
+
+class LoginFrame(tk.Frame):
+    def __init__(self, parent, on_success):
+        super().__init__(parent, bg=COR_FUNDO)
+        self.parent = parent
+        self.on_success = on_success
+        self._build()
+
+    def _build(self):
+        center = tk.Frame(self, bg=COR_PAINEL)
+        center.place(relx=0.5, rely=0.5, anchor="center")
+
+        tk.Label(center, text="📚", font=("Segoe UI", 48), bg=COR_PAINEL,
+                 fg=COR_AZUL).pack(pady=(40, 10))
+        tk.Label(center, text="BiblioGestor", font=("Segoe UI", 16, "bold"),
+                 bg=COR_PAINEL, fg=COR_TEXTO).pack()
+        tk.Label(center, text="Gestão de Biblioteca - Casa Espírita Joana Lima",
+                 font=("Segoe UI", 8), bg=COR_PAINEL, fg=COR_SUBTEXTO).pack(pady=(0, 30))
+
+        f = tk.Frame(center, bg=COR_PAINEL)
+        f.pack()
+
+        tk.Label(f, text="Usuário:", bg=COR_PAINEL, fg=COR_TEXTO, font=FONTE).grid(row=0, column=0, sticky="e", padx=(0, 8), pady=6)
+        self.usuario_var = tk.StringVar()
+        e1 = entry_widget(f, textvariable=self.usuario_var, width=20)
+        e1.grid(row=0, column=1, pady=6)
+        e1.focus()
+
+        tk.Label(f, text="Senha:", bg=COR_PAINEL, fg=COR_TEXTO, font=FONTE).grid(row=1, column=0, sticky="e", padx=(0, 8), pady=6)
+        self.senha_var = tk.StringVar()
+        e2 = tk.Entry(f, textvariable=self.senha_var, width=20, show="*",
+                      bg=COR_CARD, fg=COR_TEXTO, insertbackground=COR_TEXTO,
+                      relief="flat", font=FONTE)
+        e2.grid(row=1, column=1, pady=6)
+
+        e2.bind("<Return>", lambda e: self._login())
+
+        b = tk.Button(f, text="Entrar", command=self._login, width=15)
+        style_btn(b, COR_VERDE)
+        b.grid(row=2, column=0, columnspan=2, pady=20)
+
+        self.bind("<Return>", lambda e: self._login())
+
+    def _login(self):
+        usuario = self.usuario_var.get().strip()
+        senha = self.senha_var.get().strip()
+        with get_conn() as c:
+            row = c.execute("SELECT id, nome, tipo FROM usuarios WHERE usuario=? AND senha=? AND ativo=1",
+                           (usuario, senha)).fetchone()
+        if row:
+            self.on_success({"id": row[0], "nome": row[1], "tipo": row[2]})
+        else:
+            messagebox.showerror("Erro", "Usuário ou senha inválidos.", parent=self)
+
 # ─── JANELA PRINCIPAL ──────────────────────────────────────────────────────────
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("📚 BiblioGestor")
+        self.title("📚 BiblioGestor - Casa Espírita Joana Lima")
         self.geometry("1100x680")
         self.minsize(900, 600)
         self.configure(bg=COR_FUNDO)
         _style_tree()
         init_db()
-        self._build_ui()
+        self.usuario_logado = None
+        self.withdraw()
+        self._login()
 
-    def _build_ui(self):
+    def _login(self):
+        self.login_frame = LoginFrame(self, self._on_login_success)
+        self.login_frame.pack(fill="both", expand=True)
+
+    def _on_login_success(self, user_data):
+        self.usuario_logado = user_data
+        self.login_frame.destroy()
+        self.deiconify()
+        self._build_ui()
+        # Imagem de fundo
+        self.bg_label = None
+        if PIL_AVAILABLE:
+            img_path = os.path.join(os.path.dirname(__file__), "imagens", "fundo.jpg")
+            if os.path.exists(img_path):
+                try:
+                    img = Image.open(img_path)
+                    img = img.resize((1100, 680), Image.LANCZOS)
+                    self.bg_photo = ImageTk.PhotoImage(img)
+                    self.bg_label = tk.Label(self, image=self.bg_photo)
+                    self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+                except Exception as e:
+                    logger.warning("Erro ao carregar imagem de fundo: %s", e)
+
+        # Sidebar
         sidebar = tk.Frame(self, bg=COR_PAINEL, width=200)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
@@ -146,7 +295,15 @@ class App(tk.Tk):
                  bg=COR_PAINEL, fg=COR_TEXTO).pack()
         tk.Label(sidebar, text="Gestão de Biblioteca", font=("Segoe UI", 8),
                  bg=COR_PAINEL, fg=COR_SUBTEXTO).pack(pady=(0, 24))
+        tk.Label(sidebar, text="Casa Espírita Joana Lima", font=("Segoe UI", 7),
+                 bg=COR_PAINEL, fg=COR_SUBTEXTO).pack(pady=(0, 16))
         ttk.Separator(sidebar, orient="horizontal").pack(fill="x", padx=16, pady=4)
+
+        # Info do usuário logado
+        tk.Label(sidebar, text=f"👤 {self.usuario_logado['nome']}",
+                 bg=COR_PAINEL, fg=COR_SUBTEXTO, font=("Segoe UI", 8)).pack(pady=(0, 8))
+        tk.Label(sidebar, text=f"({self.usuario_logado['tipo']})",
+                 bg=COR_PAINEL, fg=COR_SUBTEXTO, font=("Segoe UI", 8)).pack(pady=(0, 16))
 
         self.frames = {}
         self.nav_buttons = {}
@@ -155,20 +312,32 @@ class App(tk.Tk):
             ("🏠  Painel",        PainelFrame),
             ("📖  Livros",        LivrosFrame),
             ("👤  Associados",    AssociadosFrame),
+            ("👥  Dependentes",   DependentesFrame),
             ("🔄  Empréstimos",   EmprestimosFrame),
             ("↩️  Devoluções",    DevolucoesFrame),
             ("📊  Relatórios",    RelatoriosFrame),
         ]
 
+        # Adicionar menu Usuários apenas para Administradores
+        if self.usuario_logado['tipo'] == 'Administrador':
+            menus.append(("🔑  Usuários", UsuariosFrame))
+
+        menus.append(("🚪  Sair", "logout"))
+
         self.content = tk.Frame(self, bg=COR_FUNDO)
         self.content.pack(side="left", fill="both", expand=True)
 
         for name, FrameClass in menus:
-            f = FrameClass(self.content, self)
-            f.place(relwidth=1, relheight=1)
-            self.frames[name] = f
+            if isinstance(FrameClass, type):
+                f = FrameClass(self.content, self)
+                f.place(relwidth=1, relheight=1)
+                self.frames[name] = f
 
         def nav(name):
+            if name == "🚪  Sair":
+                if messagebox.askyesno("Sair", "Deseja sair do BiblioGestor?"):
+                    self.destroy()
+                return
             self.frames[name].tkraise()
             if hasattr(self.frames[name], "refresh"):
                 self.frames[name].refresh()
@@ -537,6 +706,296 @@ class AssociadosFrame(tk.Frame):
             c.execute("UPDATE associados SET ativo=0 WHERE id=?", (uid,))
         self.refresh()
 
+# ─── DEPENDENTES ─────────────────────────────────────────────────────────────
+
+class DependentesFrame(tk.Frame):
+    def __init__(self, parent, app):
+        super().__init__(parent, bg=COR_FUNDO)
+        self.app = app
+        self._build()
+
+    def _build(self):
+        top = tk.Frame(self, bg=COR_FUNDO)
+        top.pack(fill="x", padx=30, pady=(20, 10))
+        label(top, "👥  Gerenciar Dependentes", bold=True, font=FONTE_TITULO).pack(side="left")
+
+        btn_frame = tk.Frame(top, bg=COR_FUNDO)
+        btn_frame.pack(side="right")
+        for txt, cmd, cor in [("＋  Novo", self._novo, COR_VERDE),
+                               ("✏️  Editar", self._editar, COR_AZUL),
+                               ("🗑  Excluir", self._excluir, COR_VERMELHO)]:
+            b = tk.Button(btn_frame, text=txt, command=cmd)
+            style_btn(b, cor)
+            b.pack(side="left", padx=4)
+
+        # Filtro por associado
+        filtro_frame = tk.Frame(self, bg=COR_FUNDO)
+        filtro_frame.pack(fill="x", padx=30, pady=(0, 8))
+        label(filtro_frame, "Associado:").pack(side="left", padx=(0, 6))
+        self.assoc_var = tk.StringVar()
+        self.assoc_var.trace_add("write", lambda *_: self.refresh())
+        entry_widget(filtro_frame, textvariable=self.assoc_var, width=30).pack(side="left", padx=(0, 12))
+        label(filtro_frame, "🔍 Buscar:").pack(side="left", padx=(0, 6))
+        self.busca_var = tk.StringVar()
+        self.busca_var.trace_add("write", lambda *_: self.refresh())
+        entry_widget(filtro_frame, textvariable=self.busca_var, width=30).pack(side="left")
+
+        cols = ("ID", "Associado", "Nome", "Parentesco", "Telefone", "Email")
+        self.tv = ttk.Treeview(self, columns=cols, show="headings", height=20)
+        widths = [40, 160, 200, 100, 130, 200]
+        for col, w in zip(cols, widths):
+            self.tv.heading(col, text=col)
+            self.tv.column(col, width=w, anchor="w" if col in ("Nome", "Email", "Associado") else "center")
+
+        sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
+        self.tv.configure(yscrollcommand=sb.set)
+        self.tv.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(0, 20))
+        sb.pack(side="left", fill="y", pady=(0, 20), padx=(0, 10))
+
+    def refresh(self):
+        q = self.busca_var.get().strip().lower() if hasattr(self, "busca_var") else ""
+        assoc_q = self.assoc_var.get().strip().lower() if hasattr(self, "assoc_var") else ""
+        self.tv.delete(*self.tv.get_children())
+        with get_conn() as c:
+            rows = c.execute("""
+                SELECT d.id, a.nome, d.nome, d.parentesco, d.telefone, d.email
+                FROM dependentes d
+                JOIN associados a ON a.id=d.associado_id
+                WHERE d.ativo=1 AND a.ativo=1
+                AND (LOWER(d.nome) LIKE ? OR LOWER(a.nome) LIKE ?)
+                AND (LOWER(a.nome) LIKE ? OR ? = '')
+                ORDER BY a.nome, d.nome
+            """, (f"%{q}%", f"%{q}%", f"%{assoc_q}%", assoc_q)).fetchall()
+        for r in rows:
+            self.tv.insert("", "end", values=r)
+
+    def _form(self, dados=None):
+        win = _modal(self, "Dependente")
+        # Buscar associados para o combobox
+        with get_conn() as c:
+            associados = c.execute("SELECT id, nome FROM associados WHERE ativo=1 ORDER BY nome").fetchall()
+        campos = [
+            ("Associado*", "associado_id", associados),
+            ("Nome*",      "nome"),
+            ("Parentesco", "parentesco"),
+            ("Telefone",   "telefone"),
+            ("E-mail",     "email"),
+        ]
+        entries = {}
+        for i, (lbl, key, *extra) in enumerate(campos):
+            tk.Label(win, text=lbl, bg=COR_PAINEL, fg=COR_TEXTO, font=FONTE).grid(
+                row=i, column=0, sticky="w", padx=16, pady=6)
+            if key == "associado_id":
+                var = tk.StringVar()
+                cb = ttk.Combobox(win, textvariable=var, state="readonly", width=33, font=FONTE)
+                cb['values'] = [f"{a[0]} - {a[1]}" for a in extra[0]]
+                if dados:
+                    var.set(f"{dados['associado_id']} - {dados.get('associado_nome', '')}")
+                cb.grid(row=i, column=1, padx=(4, 16), pady=6)
+                entries[key] = cb
+            else:
+                e = entry_widget(win, width=36)
+                e.grid(row=i, column=1, padx=(4, 16), pady=6)
+                if dados and dados.get(key):
+                    e.insert(0, dados.get(key, ""))
+                entries[key] = e
+
+        def salvar():
+            if not entries["associado_id"].get():
+                messagebox.showwarning("Aviso", "Selecione um associado.", parent=win)
+                return
+            nome = entries["nome"].get().strip() if isinstance(entries["nome"], tk.Entry) else entries["nome"].get().strip()
+            if not nome:
+                messagebox.showwarning("Aviso", "Nome é obrigatório.", parent=win)
+                return
+            assoc_id = int(entries["associado_id"].get().split(" - ")[0])
+            parentesco = entries["parentesco"].get().strip() if isinstance(entries["parentesco"], tk.Entry) else ""
+            telefone = entries["telefone"].get().strip() if isinstance(entries["telefone"], tk.Entry) else ""
+            email = entries["email"].get().strip() if isinstance(entries["email"], tk.Entry) else ""
+            with get_conn() as c:
+                if dados:
+                    c.execute("""UPDATE dependentes SET associado_id=?, nome=?, parentesco=?, telefone=?, email=?
+                               WHERE id=?""",
+                              (assoc_id, nome, parentesco, telefone, email, dados["id"]))
+                else:
+                    c.execute("""INSERT INTO dependentes(associado_id, nome, parentesco, telefone, email)
+                               VALUES(?,?,?,?,?)""",
+                              (assoc_id, nome, parentesco, telefone, email))
+            win.destroy()
+            self.refresh()
+
+        b = tk.Button(win, text="💾  Salvar", command=salvar)
+        style_btn(b, COR_VERDE)
+        b.grid(row=len(campos), column=0, columnspan=2, pady=16)
+
+    def _novo(self):    self._form()
+    def _editar(self):
+        sel = self.tv.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione um dependente.")
+            return
+        did = self.tv.item(sel[0])["values"][0]
+        with get_conn() as c:
+            r = c.execute("SELECT * FROM dependentes WHERE id=?", (did,)).fetchone()
+            assoc_nome = c.execute("SELECT nome FROM associados WHERE id=?", (r[1],)).fetchone()[0]
+        cols = ["id","associado_id","nome","parentesco","telefone","email","ativo"]
+        dados = dict(zip(cols, r))
+        dados["associado_nome"] = assoc_nome
+        self._form(dados)
+
+    def _excluir(self):
+        sel = self.tv.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione um dependente.")
+            return
+        did = self.tv.item(sel[0])["values"][0]
+        if not messagebox.askyesno("Confirmar", "Excluir este dependente?"):
+            return
+        with get_conn() as c:
+            c.execute("UPDATE dependentes SET ativo=0 WHERE id=?", (did,))
+        self.refresh()
+
+# ─── USUÁRIOS (ACESSO AO SISTEMA) ─────────────────────────────────────
+
+class UsuariosFrame(tk.Frame):
+    def __init__(self, parent, app):
+        super().__init__(parent, bg=COR_FUNDO)
+        self.app = app
+        self._build()
+
+    def _build(self):
+        top = tk.Frame(self, bg=COR_FUNDO)
+        top.pack(fill="x", padx=30, pady=(20, 10))
+        label(top, "🔑  Gerenciar Usuários do Sistema", bold=True, font=FONTE_TITULO).pack(side="left")
+
+        btn_frame = tk.Frame(top, bg=COR_FUNDO)
+        btn_frame.pack(side="right")
+        for txt, cmd, cor in [("＋  Novo", self._novo, COR_VERDE),
+                               ("✏️  Editar", self._editar, COR_AZUL),
+                               ("🗑  Excluir", self._excluir, COR_VERMELHO)]:
+            b = tk.Button(btn_frame, text=txt, command=cmd)
+            style_btn(b, cor)
+            b.pack(side="left", padx=4)
+
+        busca_frame = tk.Frame(self, bg=COR_FUNDO)
+        busca_frame.pack(fill="x", padx=30, pady=(0, 8))
+        label(busca_frame, "🔍 Buscar:").pack(side="left", padx=(0, 6))
+        self.busca_var = tk.StringVar()
+        self.busca_var.trace_add("write", lambda *_: self.refresh())
+        entry_widget(busca_frame, textvariable=self.busca_var, width=40).pack(side="left")
+
+        cols = ("ID", "Nome", "Usuário", "Tipo", "Status")
+        self.tv = ttk.Treeview(self, columns=cols, show="headings", height=20)
+        widths = [40, 200, 150, 120, 80]
+        for col, w in zip(cols, widths):
+            self.tv.heading(col, text=col)
+            self.tv.column(col, width=w, anchor="w" if col in ("Nome", "Usuário") else "center")
+
+        sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
+        self.tv.configure(yscrollcommand=sb.set)
+        self.tv.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(0, 20))
+        sb.pack(side="left", fill="y", pady=(0, 20), padx=(0, 10))
+
+    def refresh(self):
+        q = self.busca_var.get().strip().lower() if hasattr(self, "busca_var") else ""
+        self.tv.delete(*self.tv.get_children())
+        with get_conn() as c:
+            if q:
+                rows = c.execute(
+                    "SELECT id, nome, usuario, tipo, ativo FROM usuarios WHERE LOWER(nome) LIKE ? OR LOWER(usuario) LIKE ?",
+                    (f"%{q}%", f"%{q}%")
+                ).fetchall()
+            else:
+                rows = c.execute("SELECT id, nome, usuario, tipo, ativo FROM usuarios").fetchall()
+        for r in rows:
+            status = "✅ Ativo" if r[4] else "❌ Inativo"
+            self.tv.insert("", "end", values=(r[0], r[1], r[2], r[3], status))
+
+    def _form(self, dados=None):
+        win = _modal(self, "Usuário")
+        campos = [
+            ("Nome*",      "nome"),
+            ("Usuário*",   "usuario"),
+            ("Senha" + ("*" if not dados else " (deixe em branco para manter)"), "senha"),
+            ("Tipo",       "tipo"),
+        ]
+        entries = {}
+        for i, (lbl, key) in enumerate(campos):
+            tk.Label(win, text=lbl, bg=COR_PAINEL, fg=COR_TEXTO, font=FONTE).grid(
+                row=i, column=0, sticky="w", padx=16, pady=6)
+            if key == "tipo":
+                var = tk.StringVar(value=dados.get(key, "Operador") if dados else "Operador")
+                cb = ttk.Combobox(win, textvariable=var,
+                                   values=["Administrador", "Operador"],
+                                   state="readonly", width=33, font=FONTE)
+                cb.grid(row=i, column=1, padx=(4, 16), pady=6)
+                entries[key] = var
+            elif key == "senha":
+                e = tk.Entry(win, width=36, show="*",
+                             bg=COR_CARD, fg=COR_TEXTO, insertbackground=COR_TEXTO,
+                             relief="flat", font=FONTE)
+                e.grid(row=i, column=1, padx=(4, 16), pady=6)
+                entries[key] = e
+            else:
+                e = entry_widget(win, width=36)
+                e.grid(row=i, column=1, padx=(4, 16), pady=6)
+                if dados and dados.get(key):
+                    e.insert(0, dados.get(key, ""))
+                entries[key] = e
+
+        def salvar():
+            nome = entries["nome"].get().strip()
+            usuario = entries["usuario"].get().strip()
+            senha = entries["senha"].get()
+            if not nome or not usuario:
+                messagebox.showwarning("Aviso", "Nome e Usuário são obrigatórios.", parent=win)
+                return
+            tipo = entries["tipo"].get()
+            with get_conn() as c:
+                if dados:
+                    if senha:
+                        c.execute("UPDATE usuarios SET nome=?, usuario=?, senha=?, tipo=? WHERE id=?",
+                                  (nome, usuario, senha, tipo, dados["id"]))
+                    else:
+                        c.execute("UPDATE usuarios SET nome=?, usuario=?, tipo=? WHERE id=?",
+                                  (nome, usuario, tipo, dados["id"]))
+                else:
+                    if not senha:
+                        messagebox.showwarning("Aviso", "Senha é obrigatória para novos usuários.", parent=win)
+                        return
+                    c.execute("INSERT INTO usuarios(nome, usuario, senha, tipo) VALUES(?,?,?,?)",
+                              (nome, usuario, senha, tipo))
+            win.destroy()
+            self.refresh()
+
+        b = tk.Button(win, text="💾  Salvar", command=salvar)
+        style_btn(b, COR_VERDE)
+        b.grid(row=len(campos), column=0, columnspan=2, pady=16)
+
+    def _novo(self):    self._form()
+    def _editar(self):
+        sel = self.tv.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione um usuário.")
+            return
+        uid = self.tv.item(sel[0])["values"][0]
+        with get_conn() as c:
+            r = c.execute("SELECT * FROM usuarios WHERE id=?", (uid,)).fetchone()
+        cols = ["id","nome","usuario","senha","tipo","ativo"]
+        self._form(dict(zip(cols, r)))
+
+    def _excluir(self):
+        sel = self.tv.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione um usuário.")
+            return
+        uid = self.tv.item(sel[0])["values"][0]
+        if not messagebox.askyesno("Confirmar", "Desativar este usuário?"):
+            return
+        with get_conn() as c:
+            c.execute("UPDATE usuarios SET ativo=0 WHERE id=?", (uid,))
+        self.refresh()
+
 # ─── EMPRÉSTIMOS ───────────────────────────────────────────────────────────────
 
 class EmprestimosFrame(tk.Frame):
@@ -544,9 +1003,10 @@ class EmprestimosFrame(tk.Frame):
         super().__init__(parent, bg=COR_FUNDO)
         self.app = app
         self._livro_selecionado_id    = None
-        self._usuario_selecionado_id  = None
+        self._pessoa_selecionada_id   = None
+        self._pessoa_tipo             = None  # 'associado' ou 'dependente'
         self._livros_resultados       = {}
-        self._usuarios_resultados     = {}
+        self._pessoas_resultados      = {}
         self._build()
 
     def _build(self):
@@ -557,35 +1017,34 @@ class EmprestimosFrame(tk.Frame):
         form = tk.Frame(self, bg=COR_CARD, padx=24, pady=20)
         form.pack(fill="x", padx=30, pady=(0, 16))
 
-        # ── Livro ──
         tk.Label(form, text="Livro*", bg=COR_CARD, fg=COR_TEXTO, font=FONTE).grid(
             row=0, column=0, sticky="w", pady=6, padx=(0, 12))
         self.livro_var = tk.StringVar()
         self.livro_var.trace_add("write", lambda *_: self._filtrar_livros())
-        self.livro_entry = entry_widget(form, textvariable=self.livro_var, width=50)
+        self.livro_entry = entry_widget(form, textvariable=self.livro_var, width=48)
         self.livro_entry.grid(row=0, column=1, pady=6, padx=(0, 20))
 
         self.livro_listbox = tk.Listbox(form, bg=COR_CARD, fg=COR_TEXTO, font=FONTE,
-                                        height=5, relief="flat", selectbackground=COR_AZUL, width=50)
+                                        height=5, relief="flat", selectbackground=COR_AZUL, width=48)
         self.livro_listbox.grid(row=1, column=1, pady=(0, 6), padx=(0, 20), sticky="w")
-        self.livro_listbox.bind("<<ListboxSelect>>", self._selecionar_livro)
+        self.livro_listbox.bind("<<ListboxSelect>>", self._on_livro_select)
         self.livro_listbox.grid_remove()
+        self.livro_listbox.bind("<Double-Button-1>", self._on_livro_select)
 
-        # ── Associado ──
-        tk.Label(form, text="Associado*", bg=COR_CARD, fg=COR_TEXTO, font=FONTE).grid(
+        tk.Label(form, text="Pessoa*", bg=COR_CARD, fg=COR_TEXTO, font=FONTE).grid(
             row=0, column=2, sticky="w", pady=6, padx=(0, 12))
-        self.usuario_var = tk.StringVar()
-        self.usuario_var.trace_add("write", lambda *_: self._filtrar_usuarios())
-        self.usuario_entry = entry_widget(form, textvariable=self.usuario_var, width=38)
-        self.usuario_entry.grid(row=0, column=3, pady=6)
+        self.pessoa_var = tk.StringVar()
+        self.pessoa_var.trace_add("write", lambda *_: self._filtrar_pessoas())
+        self.pessoa_entry = entry_widget(form, textvariable=self.pessoa_var, width=36)
+        self.pessoa_entry.grid(row=0, column=3, pady=6)
 
-        self.usuario_listbox = tk.Listbox(form, bg=COR_CARD, fg=COR_TEXTO, font=FONTE,
-                                          height=5, relief="flat", selectbackground=COR_AZUL, width=38)
-        self.usuario_listbox.grid(row=1, column=3, pady=(0, 6), sticky="w")
-        self.usuario_listbox.bind("<<ListboxSelect>>", self._selecionar_usuario)
-        self.usuario_listbox.grid_remove()
+        self.pessoa_listbox = tk.Listbox(form, bg=COR_CARD, fg=COR_TEXTO, font=FONTE,
+                                          height=5, relief="flat", selectbackground=COR_AZUL, width=36)
+        self.pessoa_listbox.grid(row=1, column=3, pady=(0, 6), sticky="w")
+        self.pessoa_listbox.bind("<<ListboxSelect>>", self._on_pessoa_select)
+        self.pessoa_listbox.bind("<Double-Button-1>", self._on_pessoa_select)
+        self.pessoa_listbox.grid_remove()
 
-        # ── Prazo ──
         tk.Label(form, text="Prazo (dias)", bg=COR_CARD, fg=COR_TEXTO, font=FONTE).grid(
             row=2, column=0, sticky="w", pady=6, padx=(0, 12))
         self.prazo_var = tk.StringVar(value=str(PRAZO_DIAS))
@@ -595,16 +1054,15 @@ class EmprestimosFrame(tk.Frame):
         style_btn(b, COR_VERDE)
         b.grid(row=2, column=2, columnspan=2, pady=6)
 
-        # ── Lista ──
         label(self, "Empréstimos em Aberto", bold=True,
               font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=30, pady=(4, 6))
 
-        cols = ("ID", "Livro", "Associado", "Empréstimo", "Prevista", "Status")
+        cols = ("ID", "Livro", "Pessoa", "Tipo", "Empréstimo", "Prevista", "Status")
         self.tv = ttk.Treeview(self, columns=cols, show="headings", height=14)
-        widths = [40, 260, 180, 110, 110, 100]
+        widths = [40, 240, 150, 80, 110, 110, 100]
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col)
-            self.tv.column(col, width=w, anchor="w" if col in ("Livro", "Associado") else "center")
+            self.tv.column(col, width=w, anchor="w" if col in ("Livro", "Pessoa") else "center")
 
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
@@ -633,64 +1091,136 @@ class EmprestimosFrame(tk.Frame):
             self.livro_listbox.insert("end", txt)
         self.livro_listbox.grid()
 
-    def _selecionar_livro(self, event):
+    def _on_livro_select(self, event=None):
         sel = self.livro_listbox.curselection()
-        if not sel: return
+        if not sel:
+            return
         texto = self.livro_listbox.get(sel[0])
         self._livro_selecionado_id = self._livros_resultados[texto]
         self.livro_var.set(texto)
         self.livro_listbox.grid_remove()
 
-    def _filtrar_usuarios(self):
-        q = self.usuario_var.get().strip().lower()
-        self._usuario_selecionado_id = None
-        self.usuario_listbox.delete(0, "end")
+    def _filtrar_pessoas(self):
+        q = self.pessoa_var.get().strip().lower()
+        self._pessoa_selecionada_id = None
+        self._pessoa_tipo = None
+        self.pessoa_listbox.delete(0, "end")
         if len(q) < 2:
-            self.usuario_listbox.grid_remove()
+            self.pessoa_listbox.grid_remove()
             return
+        resultados = {}
         with get_conn() as c:
             rows = c.execute(
-                """SELECT id, nome, matricula FROM associados
+                """SELECT id, nome FROM associados
                    WHERE ativo=1 AND (LOWER(nome) LIKE ? OR LOWER(matricula) LIKE ?)
-                   LIMIT 10""",
+                   LIMIT 5""",
                 (f"%{q}%", f"%{q}%")
             ).fetchall()
-        if not rows:
-            self.usuario_listbox.grid_remove()
-            return
-        self._usuarios_resultados = {f"{r[1]} — {r[2] or 'sem matrícula'}": r[0] for r in rows}
-        for txt in self._usuarios_resultados:
-            self.usuario_listbox.insert("end", txt)
-        self.usuario_listbox.grid()
+            for r in rows:
+                txt = f"{r[1]} (Associado)"
+                resultados[txt] = (r[0], 'associado')
 
-    def _selecionar_usuario(self, event):
-        sel = self.usuario_listbox.curselection()
-        if not sel: return
-        texto = self.usuario_listbox.get(sel[0])
-        self._usuario_selecionado_id = self._usuarios_resultados[texto]
-        self.usuario_var.set(texto)
-        self.usuario_listbox.grid_remove()
+            rows = c.execute(
+                """SELECT d.id, d.nome, a.nome FROM dependentes d
+                   JOIN associados a ON a.id=d.associado_id
+                   WHERE d.ativo=1 AND (LOWER(d.nome) LIKE ? OR LOWER(a.nome) LIKE ?)
+                   LIMIT 5""",
+                (f"%{q}%", f"%{q}%")
+            ).fetchall()
+            for r in rows:
+                txt = f"{r[1]} (Dependente de {r[2]})"
+                resultados[txt] = (r[0], 'dependente')
+
+        if not resultados:
+            self.pessoa_listbox.grid_remove()
+            return
+        self._pessoas_resultados = resultados
+        for txt in resultados:
+            self.pessoa_listbox.insert("end", txt)
+        self.pessoa_listbox.grid()
+
+    def _on_pessoa_select(self, event=None):
+        sel = self.pessoa_listbox.curselection()
+        if not sel:
+            return
+        texto = self.pessoa_listbox.get(sel[0])
+        self._pessoa_selecionada_id, self._pessoa_tipo = self._pessoas_resultados[texto]
+        self.pessoa_var.set(texto)
+        self.pessoa_listbox.grid_remove()
+
+    def _registrar(self):
+        livro_texto = self.livro_var.get().strip()
+        pessoa_texto = self.pessoa_var.get().strip()
+        
+        if not livro_texto or livro_texto not in self._livros_resultados:
+            messagebox.showwarning("Aviso", "Selecione um livro válido da lista.")
+            return
+        if not pessoa_texto or pessoa_texto not in self._pessoas_resultados:
+            messagebox.showwarning("Aviso", "Selecione uma pessoa válida da lista.")
+            return
+        
+        self._livro_selecionado_id = self._livros_resultados[livro_texto]
+        self._pessoa_selecionada_id, self._pessoa_tipo = self._pessoas_resultados[pessoa_texto]
+        
+        try:
+            prazo = int(self.prazo_var.get())
+        except (ValueError, TypeError):
+            prazo = PRAZO_DIAS
+        prev = (date.today() + timedelta(days=prazo)).strftime("%Y-%m-%d")
+        with get_conn() as c:
+            if self._pessoa_tipo == 'associado':
+                cursor = c.execute("""INSERT INTO emprestimos(livro_id, associado_id, data_emprestimo, data_prevista)
+                             VALUES(?,?,?,?)""",
+                           (self._livro_selecionado_id, self._pessoa_selecionada_id, hoje(), prev))
+            else:
+                cursor = c.execute("""INSERT INTO emprestimos(livro_id, dependente_id, data_emprestimo, data_prevista)
+                             VALUES(?,?,?,?)""",
+                           (self._livro_selecionado_id, self._pessoa_selecionada_id, hoje(), prev))
+            c.execute("UPDATE livros SET disponivel = disponivel - 1 WHERE id=?",
+                      (self._livro_selecionado_id,))
+        logger.info("Empréstimo ID=%d: livro_id=%d, %s_id=%d, devolução=%s",
+                    cursor.lastrowid, self._livro_selecionado_id, self._pessoa_tipo, self._pessoa_selecionada_id, prev)
+        messagebox.showinfo("Sucesso", f"Empréstimo registrado!\nDevolução prevista: {fmt(prev)}")
+        self.livro_var.set("")
+        self.pessoa_var.set("")
+        self.livro_entry['values'] = []
+        self.pessoa_entry['values'] = []
+        self._livro_selecionado_id   = None
+        self._pessoa_selecionada_id = None
+        self._pessoa_tipo            = None
+        self.refresh()
 
     def refresh(self):
         self.tv.delete(*self.tv.get_children())
         with get_conn() as c:
+            # Empréstimos de associados
             rows = c.execute("""
-                SELECT e.id, l.titulo, a.nome, e.data_emprestimo, e.data_prevista
+                SELECT e.id, l.titulo, a.nome, 'Associado', e.data_emprestimo, e.data_prevista
                 FROM emprestimos e
                 JOIN livros l ON l.id=e.livro_id
                 JOIN associados a ON a.id=e.associado_id
-                WHERE e.data_devolucao IS NULL
+                WHERE e.data_devolucao IS NULL AND e.associado_id IS NOT NULL
                 ORDER BY e.data_prevista
             """).fetchall()
-        for eid, titulo, nome, emp, prev in rows:
+            # Empréstimos de dependentes
+            rows2 = c.execute("""
+                SELECT e.id, l.titulo, d.nome, 'Dependente', e.data_emprestimo, e.data_prevista
+                FROM emprestimos e
+                JOIN livros l ON l.id=e.livro_id
+                JOIN dependentes d ON d.id=e.dependente_id
+                WHERE e.data_devolucao IS NULL AND e.dependente_id IS NOT NULL
+                ORDER BY e.data_prevista
+            """).fetchall()
+            rows.extend(rows2)
+        for eid, titulo, nome, tipo, emp, prev in rows:
             status = "✅ OK" if prev >= hoje() else "⚠️ Atrasado"
             tag = "ok" if prev >= hoje() else "late"
-            self.tv.insert("", "end", values=(eid, titulo, nome, fmt(emp), fmt(prev), status), tags=(tag,))
+            self.tv.insert("", "end", values=(eid, titulo, nome, tipo, fmt(emp), fmt(prev), status), tags=(tag,))
         self.tv.tag_configure("late", foreground=COR_VERMELHO)
 
     def _registrar(self):
-        if not self._livro_selecionado_id or not self._usuario_selecionado_id:
-            messagebox.showwarning("Aviso", "Selecione um livro e um associado da lista.")
+        if not self._livro_selecionado_id or not self._pessoa_selecionada_id or not self._pessoa_tipo:
+            messagebox.showwarning("Aviso", "Selecione um livro e uma pessoa (associado ou dependente) da lista.")
             return
         try:
             prazo = int(self.prazo_var.get())
@@ -698,18 +1228,24 @@ class EmprestimosFrame(tk.Frame):
             prazo = PRAZO_DIAS
         prev = (date.today() + timedelta(days=prazo)).strftime("%Y-%m-%d")
         with get_conn() as c:
-            cursor = c.execute("""INSERT INTO emprestimos(livro_id, associado_id, data_emprestimo, data_prevista)
-                         VALUES(?,?,?,?)""",
-                      (self._livro_selecionado_id, self._usuario_selecionado_id, hoje(), prev))
+            if self._pessoa_tipo == 'associado':
+                cursor = c.execute("""INSERT INTO emprestimos(livro_id, associado_id, data_emprestimo, data_prevista)
+                             VALUES(?,?,?,?)""",
+                           (self._livro_selecionado_id, self._pessoa_selecionada_id, hoje(), prev))
+            else:
+                cursor = c.execute("""INSERT INTO emprestimos(livro_id, dependente_id, data_emprestimo, data_prevista)
+                             VALUES(?,?,?,?)""",
+                           (self._livro_selecionado_id, self._pessoa_selecionada_id, hoje(), prev))
             c.execute("UPDATE livros SET disponivel = disponivel - 1 WHERE id=?",
                       (self._livro_selecionado_id,))
-        logger.info("Empréstimo ID=%d: livro_id=%d, associado_id=%d, devolucao=%s",
-                    cursor.lastrowid, self._livro_selecionado_id, self._usuario_selecionado_id, prev)
+        logger.info("Empréstimo ID=%d: livro_id=%d, %s_id=%d, devolução=%s",
+                    cursor.lastrowid, self._livro_selecionado_id, self._pessoa_tipo, self._pessoa_selecionada_id, prev)
         messagebox.showinfo("Sucesso", f"Empréstimo registrado!\nDevolução prevista: {fmt(prev)}")
         self.livro_var.set("")
-        self.usuario_var.set("")
+        self.pessoa_var.set("")
         self._livro_selecionado_id   = None
-        self._usuario_selecionado_id = None
+        self._pessoa_selecionada_id = None
+        self._pessoa_tipo            = None
         self.refresh()
 
 # ─── DEVOLUÇÕES ────────────────────────────────────────────────────────────────
@@ -725,12 +1261,12 @@ class DevolucoesFrame(tk.Frame):
         top.pack(fill="x", padx=30, pady=(20, 10))
         label(top, "↩️  Registrar Devolução", bold=True, font=FONTE_TITULO).pack(side="left")
 
-        cols = ("ID", "Livro", "Associado", "Emprestado em", "Prevista", "Status")
+        cols = ("ID", "Livro", "Pessoa", "Tipo", "Emprestado em", "Prevista", "Status")
         self.tv = ttk.Treeview(self, columns=cols, show="headings", height=18)
-        widths = [40, 240, 160, 110, 110, 100]
+        widths = [40, 240, 150, 80, 110, 110, 100]
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col)
-            self.tv.column(col, width=w, anchor="w" if col in ("Livro", "Associado") else "center")
+            self.tv.column(col, width=w, anchor="w" if col in ("Livro", "Pessoa") else "center")
 
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
@@ -746,19 +1282,30 @@ class DevolucoesFrame(tk.Frame):
     def refresh(self):
         self.tv.delete(*self.tv.get_children())
         with get_conn() as c:
+            # Empréstimos de associados
             rows = c.execute("""
-                SELECT e.id, l.titulo, a.nome, e.data_emprestimo, e.data_prevista, l.id
+                SELECT e.id, l.titulo, a.nome, 'Associado', e.data_emprestimo, e.data_prevista, l.id
                 FROM emprestimos e
                 JOIN livros l ON l.id=e.livro_id
                 JOIN associados a ON a.id=e.associado_id
-                WHERE e.data_devolucao IS NULL
+                WHERE e.data_devolucao IS NULL AND e.associado_id IS NOT NULL
                 ORDER BY e.data_prevista
             """).fetchall()
-        for eid, titulo, nome, emp, prev, lid in rows:
+            # Empréstimos de dependentes
+            rows2 = c.execute("""
+                SELECT e.id, l.titulo, d.nome, 'Dependente', e.data_emprestimo, e.data_prevista, l.id
+                FROM emprestimos e
+                JOIN livros l ON l.id=e.livro_id
+                JOIN dependentes d ON d.id=e.dependente_id
+                WHERE e.data_devolucao IS NULL AND e.dependente_id IS NOT NULL
+                ORDER BY e.data_prevista
+            """).fetchall()
+            rows.extend(rows2)
+        for eid, titulo, nome, tipo, emp, prev, lid in rows:
             status = "✅ OK" if prev >= hoje() else f"⚠️ {(date.today()-datetime.strptime(prev,'%Y-%m-%d').date()).days}d atraso"
             tag    = "ok" if prev >= hoje() else "late"
             self.tv.insert("", "end",
-                           values=(eid, titulo, nome, fmt(emp), fmt(prev), status),
+                           values=(eid, titulo, nome, tipo, fmt(emp), fmt(prev), status),
                            tags=(tag,))
         self.tv.tag_configure("late", foreground=COR_VERMELHO)
 
@@ -809,7 +1356,7 @@ class RelatoriosFrame(tk.Frame):
         b = tk.Button(ff, text="🔍 Filtrar", command=self._load_historico)
         style_btn(b); b.pack(side="left")
 
-        cols = ("ID", "Livro", "Associado", "Emprestado", "Prevista", "Devolvido")
+        cols = ("ID", "Livro", "Pessoa", "Tipo", "Emprestado", "Prevista", "Devolvido")
         self.tv_hist = ttk.Treeview(f, columns=cols, show="headings", height=18)
         for col in cols:
             self.tv_hist.heading(col, text=col)
@@ -843,7 +1390,7 @@ class RelatoriosFrame(tk.Frame):
     def _tab_atrasados(self, tabs):
         f = tk.Frame(tabs, bg=COR_FUNDO)
         tabs.add(f, text="  Em Atraso  ")
-        cols = ("ID", "Livro", "Associado", "Prevista", "Dias Atraso")
+        cols = ("ID", "Livro", "Pessoa", "Tipo", "Prevista", "Dias Atraso")
         self.tv_atr = ttk.Treeview(f, columns=cols, show="headings", height=20)
         for col in cols:
             self.tv_atr.heading(col, text=col)

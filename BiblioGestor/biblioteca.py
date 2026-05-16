@@ -233,8 +233,6 @@ class LoginFrame(tk.Frame):
         style_btn(b, COR_VERDE)
         b.grid(row=2, column=0, columnspan=2, pady=20)
 
-        self.bind("<Return>", lambda e: self._login())
-
     def _login(self):
         usuario = self.usuario_var.get().strip()
         senha = self.senha_var.get().strip()
@@ -258,19 +256,18 @@ class App(tk.Tk):
         _style_tree()
         init_db()
         self.usuario_logado = None
-        self.withdraw()
-        self._login()
+        self._build_login()
 
-    def _login(self):
+    def _build_login(self):
         self.login_frame = LoginFrame(self, self._on_login_success)
         self.login_frame.pack(fill="both", expand=True)
 
     def _on_login_success(self, user_data):
         self.usuario_logado = user_data
         self.login_frame.destroy()
-        self.deiconify()
-        self._build_ui()
-        # Imagem de fundo
+        self._build_main_ui()
+
+    def _build_main_ui(self):
         self.bg_label = None
         if PIL_AVAILABLE:
             img_path = os.path.join(os.path.dirname(__file__), "imagens", "fundo.jpg")
@@ -284,7 +281,6 @@ class App(tk.Tk):
                 except Exception as e:
                     logger.warning("Erro ao carregar imagem de fundo: %s", e)
 
-        # Sidebar
         sidebar = tk.Frame(self, bg=COR_PAINEL, width=200)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
@@ -299,7 +295,6 @@ class App(tk.Tk):
                  bg=COR_PAINEL, fg=COR_SUBTEXTO).pack(pady=(0, 16))
         ttk.Separator(sidebar, orient="horizontal").pack(fill="x", padx=16, pady=4)
 
-        # Info do usuário logado
         tk.Label(sidebar, text=f"👤 {self.usuario_logado['nome']}",
                  bg=COR_PAINEL, fg=COR_SUBTEXTO, font=("Segoe UI", 8)).pack(pady=(0, 8))
         tk.Label(sidebar, text=f"({self.usuario_logado['tipo']})",
@@ -318,7 +313,6 @@ class App(tk.Tk):
             ("📊  Relatórios",    RelatoriosFrame),
         ]
 
-        # Adicionar menu Usuários apenas para Administradores
         if self.usuario_logado['tipo'] == 'Administrador':
             menus.append(("🔑  Usuários", UsuariosFrame))
 
@@ -329,18 +323,24 @@ class App(tk.Tk):
 
         for name, FrameClass in menus:
             if isinstance(FrameClass, type):
-                f = FrameClass(self.content, self)
-                f.place(relwidth=1, relheight=1)
-                self.frames[name] = f
+                try:
+                    f = FrameClass(self.content, self)
+                    f.place(relwidth=1, relheight=1)
+                    self.frames[name] = f
+                    logger.info("Frame criado: %s", name)
+                except Exception as e:
+                    logger.error("Erro ao criar frame %s: %s", name, e)
 
         def nav(name):
+            logger.info("Navegando para: %s", name)
             if name == "🚪  Sair":
                 if messagebox.askyesno("Sair", "Deseja sair do BiblioGestor?"):
                     self.destroy()
                 return
-            self.frames[name].tkraise()
-            if hasattr(self.frames[name], "refresh"):
-                self.frames[name].refresh()
+            if name in self.frames:
+                self.frames[name].tkraise()
+                if hasattr(self.frames[name], "refresh"):
+                    self.frames[name].refresh()
             for menu_name, btn in self.nav_buttons.items():
                 btn.config(bg=COR_AZUL if menu_name == name else COR_PAINEL)
 
@@ -1020,30 +1020,22 @@ class EmprestimosFrame(tk.Frame):
         tk.Label(form, text="Livro*", bg=COR_CARD, fg=COR_TEXTO, font=FONTE).grid(
             row=0, column=0, sticky="w", pady=6, padx=(0, 12))
         self.livro_var = tk.StringVar()
-        self.livro_var.trace_add("write", lambda *_: self._filtrar_livros())
-        self.livro_entry = entry_widget(form, textvariable=self.livro_var, width=48)
+        self.livro_entry = ttk.Combobox(form, textvariable=self.livro_var, width=46,
+                                         postcommand=self._preparar_livros)
+        self.livro_entry.state(['!readonly'])
         self.livro_entry.grid(row=0, column=1, pady=6, padx=(0, 20))
-
-        self.livro_listbox = tk.Listbox(form, bg=COR_CARD, fg=COR_TEXTO, font=FONTE,
-                                        height=5, relief="flat", selectbackground=COR_AZUL, width=48)
-        self.livro_listbox.grid(row=1, column=1, pady=(0, 6), padx=(0, 20), sticky="w")
-        self.livro_listbox.bind("<<ListboxSelect>>", self._on_livro_select)
-        self.livro_listbox.grid_remove()
-        self.livro_listbox.bind("<Double-Button-1>", self._on_livro_select)
+        self.livro_entry.bind('<<ComboboxSelected>>', self._on_livro_select)
+        self.livro_entry.bind('<KeyRelease>', self._filtrar_livros)
 
         tk.Label(form, text="Pessoa*", bg=COR_CARD, fg=COR_TEXTO, font=FONTE).grid(
             row=0, column=2, sticky="w", pady=6, padx=(0, 12))
         self.pessoa_var = tk.StringVar()
-        self.pessoa_var.trace_add("write", lambda *_: self._filtrar_pessoas())
-        self.pessoa_entry = entry_widget(form, textvariable=self.pessoa_var, width=36)
+        self.pessoa_entry = ttk.Combobox(form, textvariable=self.pessoa_var, width=34,
+                                          postcommand=self._preparar_pessoas)
+        self.pessoa_entry.state(['!readonly'])
         self.pessoa_entry.grid(row=0, column=3, pady=6)
-
-        self.pessoa_listbox = tk.Listbox(form, bg=COR_CARD, fg=COR_TEXTO, font=FONTE,
-                                          height=5, relief="flat", selectbackground=COR_AZUL, width=36)
-        self.pessoa_listbox.grid(row=1, column=3, pady=(0, 6), sticky="w")
-        self.pessoa_listbox.bind("<<ListboxSelect>>", self._on_pessoa_select)
-        self.pessoa_listbox.bind("<Double-Button-1>", self._on_pessoa_select)
-        self.pessoa_listbox.grid_remove()
+        self.pessoa_entry.bind('<<ComboboxSelected>>', self._on_pessoa_select)
+        self.pessoa_entry.bind('<KeyRelease>', self._filtrar_pessoas)
 
         tk.Label(form, text="Prazo (dias)", bg=COR_CARD, fg=COR_TEXTO, font=FONTE).grid(
             row=2, column=0, sticky="w", pady=6, padx=(0, 12))
@@ -1069,126 +1061,70 @@ class EmprestimosFrame(tk.Frame):
         self.tv.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(0, 20))
         sb.pack(side="left", fill="y", pady=(0, 20), padx=(0, 10))
 
-    def _filtrar_livros(self):
+    def _preparar_livros(self):
         q = self.livro_var.get().strip().lower()
         self._livro_selecionado_id = None
-        self.livro_listbox.delete(0, "end")
-        if len(q) < 2:
-            self.livro_listbox.grid_remove()
-            return
         with get_conn() as c:
-            rows = c.execute(
-                """SELECT id, titulo, autor FROM livros
-                   WHERE disponivel > 0 AND (LOWER(titulo) LIKE ? OR LOWER(autor) LIKE ?)
-                   LIMIT 10""",
-                (f"%{q}%", f"%{q}%")
-            ).fetchall()
-        if not rows:
-            self.livro_listbox.grid_remove()
-            return
-        self._livros_resultados = {f"{r[1]} — {r[2]}": r[0] for r in rows}
-        for txt in self._livros_resultados:
-            self.livro_listbox.insert("end", txt)
-        self.livro_listbox.grid()
+            if len(q) < 3:
+                rows = c.execute(
+                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 ORDER BY titulo LIMIT 10"
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 AND (LOWER(titulo) LIKE ? OR LOWER(autor) LIKE ?) LIMIT 15",
+                    (f"%{q}%", f"%{q}%")
+                ).fetchall()
+        if rows:
+            items = [f"{r[1]} — {r[2]}" for r in rows]
+            self._livros_resultados = {items[i]: rows[i][0] for i in range(len(rows))}
+            self.livro_entry['values'] = items
+        else:
+            self.livro_entry['values'] = []
 
-    def _on_livro_select(self, event=None):
-        sel = self.livro_listbox.curselection()
-        if not sel:
-            return
-        texto = self.livro_listbox.get(sel[0])
-        self._livro_selecionado_id = self._livros_resultados[texto]
-        self.livro_var.set(texto)
-        self.livro_listbox.grid_remove()
-
-    def _filtrar_pessoas(self):
+    def _preparar_pessoas(self):
         q = self.pessoa_var.get().strip().lower()
         self._pessoa_selecionada_id = None
         self._pessoa_tipo = None
-        self.pessoa_listbox.delete(0, "end")
-        if len(q) < 2:
-            self.pessoa_listbox.grid_remove()
-            return
         resultados = {}
         with get_conn() as c:
-            rows = c.execute(
-                """SELECT id, nome FROM associados
-                   WHERE ativo=1 AND (LOWER(nome) LIKE ? OR LOWER(matricula) LIKE ?)
-                   LIMIT 5""",
-                (f"%{q}%", f"%{q}%")
-            ).fetchall()
+            if len(q) < 3:
+                rows = c.execute(
+                    "SELECT id, nome FROM associados WHERE ativo=1 ORDER BY nome LIMIT 8"
+                ).fetchall()
+                rows2 = c.execute(
+                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 ORDER BY d.nome LIMIT 6"
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    "SELECT id, nome FROM associados WHERE ativo=1 AND (LOWER(nome) LIKE ? OR LOWER(matricula) LIKE ?) LIMIT 10",
+                    (f"%{q}%", f"%{q}%")
+                ).fetchall()
+                rows2 = c.execute(
+                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 AND (LOWER(d.nome) LIKE ? OR LOWER(a.nome) LIKE ?) LIMIT 10",
+                    (f"%{q}%", f"%{q}%")
+                ).fetchall()
             for r in rows:
-                txt = f"{r[1]} (Associado)"
-                resultados[txt] = (r[0], 'associado')
-
-            rows = c.execute(
-                """SELECT d.id, d.nome, a.nome FROM dependentes d
-                   JOIN associados a ON a.id=d.associado_id
-                   WHERE d.ativo=1 AND (LOWER(d.nome) LIKE ? OR LOWER(a.nome) LIKE ?)
-                   LIMIT 5""",
-                (f"%{q}%", f"%{q}%")
-            ).fetchall()
-            for r in rows:
-                txt = f"{r[1]} (Dependente de {r[2]})"
-                resultados[txt] = (r[0], 'dependente')
-
-        if not resultados:
-            self.pessoa_listbox.grid_remove()
-            return
+                resultados[f"{r[1]} (Associado)"] = (r[0], 'associado')
+            for r in rows2:
+                resultados[f"{r[1]} (Dependente de {r[2]})"] = (r[0], 'dependente')
         self._pessoas_resultados = resultados
-        for txt in resultados:
-            self.pessoa_listbox.insert("end", txt)
-        self.pessoa_listbox.grid()
+        self.pessoa_entry['values'] = list(resultados.keys())
+
+    def _filtrar_livros(self, event=None):
+        self._preparar_livros()
+
+    def _on_livro_select(self, event=None):
+        texto = self.livro_entry.get()
+        if texto in self._livros_resultados:
+            self._livro_selecionado_id = self._livros_resultados[texto]
+
+    def _filtrar_pessoas(self, event=None):
+        self._preparar_pessoas()
 
     def _on_pessoa_select(self, event=None):
-        sel = self.pessoa_listbox.curselection()
-        if not sel:
-            return
-        texto = self.pessoa_listbox.get(sel[0])
-        self._pessoa_selecionada_id, self._pessoa_tipo = self._pessoas_resultados[texto]
-        self.pessoa_var.set(texto)
-        self.pessoa_listbox.grid_remove()
-
-    def _registrar(self):
-        livro_texto = self.livro_var.get().strip()
-        pessoa_texto = self.pessoa_var.get().strip()
-        
-        if not livro_texto or livro_texto not in self._livros_resultados:
-            messagebox.showwarning("Aviso", "Selecione um livro válido da lista.")
-            return
-        if not pessoa_texto or pessoa_texto not in self._pessoas_resultados:
-            messagebox.showwarning("Aviso", "Selecione uma pessoa válida da lista.")
-            return
-        
-        self._livro_selecionado_id = self._livros_resultados[livro_texto]
-        self._pessoa_selecionada_id, self._pessoa_tipo = self._pessoas_resultados[pessoa_texto]
-        
-        try:
-            prazo = int(self.prazo_var.get())
-        except (ValueError, TypeError):
-            prazo = PRAZO_DIAS
-        prev = (date.today() + timedelta(days=prazo)).strftime("%Y-%m-%d")
-        with get_conn() as c:
-            if self._pessoa_tipo == 'associado':
-                cursor = c.execute("""INSERT INTO emprestimos(livro_id, associado_id, data_emprestimo, data_prevista)
-                             VALUES(?,?,?,?)""",
-                           (self._livro_selecionado_id, self._pessoa_selecionada_id, hoje(), prev))
-            else:
-                cursor = c.execute("""INSERT INTO emprestimos(livro_id, dependente_id, data_emprestimo, data_prevista)
-                             VALUES(?,?,?,?)""",
-                           (self._livro_selecionado_id, self._pessoa_selecionada_id, hoje(), prev))
-            c.execute("UPDATE livros SET disponivel = disponivel - 1 WHERE id=?",
-                      (self._livro_selecionado_id,))
-        logger.info("Empréstimo ID=%d: livro_id=%d, %s_id=%d, devolução=%s",
-                    cursor.lastrowid, self._livro_selecionado_id, self._pessoa_tipo, self._pessoa_selecionada_id, prev)
-        messagebox.showinfo("Sucesso", f"Empréstimo registrado!\nDevolução prevista: {fmt(prev)}")
-        self.livro_var.set("")
-        self.pessoa_var.set("")
-        self.livro_entry['values'] = []
-        self.pessoa_entry['values'] = []
-        self._livro_selecionado_id   = None
-        self._pessoa_selecionada_id = None
-        self._pessoa_tipo            = None
-        self.refresh()
+        texto = self.pessoa_entry.get()
+        if texto in self._pessoas_resultados:
+            self._pessoa_selecionada_id, self._pessoa_tipo = self._pessoas_resultados[texto]
 
     def refresh(self):
         self.tv.delete(*self.tv.get_children())
@@ -1219,9 +1155,18 @@ class EmprestimosFrame(tk.Frame):
         self.tv.tag_configure("late", foreground=COR_VERMELHO)
 
     def _registrar(self):
-        if not self._livro_selecionado_id or not self._pessoa_selecionada_id or not self._pessoa_tipo:
-            messagebox.showwarning("Aviso", "Selecione um livro e uma pessoa (associado ou dependente) da lista.")
+        livro_texto = self.livro_var.get().strip()
+        pessoa_texto = self.pessoa_var.get().strip()
+        
+        if not livro_texto or livro_texto not in self._livros_resultados:
+            messagebox.showwarning("Aviso", "Selecione um livro válido da lista.")
             return
+        if not pessoa_texto or pessoa_texto not in self._pessoas_resultados:
+            messagebox.showwarning("Aviso", "Selecione uma pessoa válida da lista.")
+            return
+        
+        self._livro_selecionado_id = self._livros_resultados[livro_texto]
+        self._pessoa_selecionada_id, self._pessoa_tipo = self._pessoas_resultados[pessoa_texto]
         try:
             prazo = int(self.prazo_var.get())
         except (ValueError, TypeError):
@@ -1229,13 +1174,20 @@ class EmprestimosFrame(tk.Frame):
         prev = (date.today() + timedelta(days=prazo)).strftime("%Y-%m-%d")
         with get_conn() as c:
             if self._pessoa_tipo == 'associado':
-                cursor = c.execute("""INSERT INTO emprestimos(livro_id, associado_id, data_emprestimo, data_prevista)
-                             VALUES(?,?,?,?)""",
+                cursor = c.execute("""INSERT INTO emprestimos(livro_id, associado_id, dependente_id, data_emprestimo, data_prevista)
+                             VALUES(?,?,NULL,?,?)""",
                            (self._livro_selecionado_id, self._pessoa_selecionada_id, hoje(), prev))
             else:
-                cursor = c.execute("""INSERT INTO emprestimos(livro_id, dependente_id, data_emprestimo, data_prevista)
-                             VALUES(?,?,?,?)""",
-                           (self._livro_selecionado_id, self._pessoa_selecionada_id, hoje(), prev))
+                dep_assoc = c.execute(
+                    "SELECT associado_id FROM dependentes WHERE id=?",
+                    (self._pessoa_selecionada_id,)
+                ).fetchone()
+                if dep_assoc is None:
+                    messagebox.showerror("Erro", "Dependente não encontrado.")
+                    return
+                cursor = c.execute("""INSERT INTO emprestimos(livro_id, associado_id, dependente_id, data_emprestimo, data_prevista)
+                             VALUES(?,?,?,?,?)""",
+                           (self._livro_selecionado_id, dep_assoc[0], self._pessoa_selecionada_id, hoje(), prev))
             c.execute("UPDATE livros SET disponivel = disponivel - 1 WHERE id=?",
                       (self._livro_selecionado_id,))
         logger.info("Empréstimo ID=%d: livro_id=%d, %s_id=%d, devolução=%s",

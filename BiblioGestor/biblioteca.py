@@ -1168,13 +1168,13 @@ class EmprestimosFrame(tk.Frame):
     def refresh(self):
         self.tv.delete(*self.tv.get_children())
         with get_conn() as c:
-            # Empréstimos de associados
+            # Empréstimos de associados (sem dependente)
             rows = c.execute("""
                 SELECT e.id, l.titulo, a.nome, 'Associado', e.data_emprestimo, e.data_prevista
                 FROM emprestimos e
                 JOIN livros l ON l.id=e.livro_id
                 JOIN associados a ON a.id=e.associado_id
-                WHERE e.data_devolucao IS NULL AND e.associado_id IS NOT NULL
+                WHERE e.data_devolucao IS NULL AND e.associado_id IS NOT NULL AND e.dependente_id IS NULL
                 ORDER BY e.data_prevista
             """).fetchall()
             # Empréstimos de dependentes
@@ -1275,13 +1275,13 @@ class DevolucoesFrame(tk.Frame):
     def refresh(self):
         self.tv.delete(*self.tv.get_children())
         with get_conn() as c:
-            # Empréstimos de associados
+            # Empréstimos de associados (sem dependente)
             rows = c.execute("""
                 SELECT e.id, l.titulo, a.nome, 'Associado', e.data_emprestimo, e.data_prevista, l.id
                 FROM emprestimos e
                 JOIN livros l ON l.id=e.livro_id
                 JOIN associados a ON a.id=e.associado_id
-                WHERE e.data_devolucao IS NULL AND e.associado_id IS NOT NULL
+                WHERE e.data_devolucao IS NULL AND e.associado_id IS NOT NULL AND e.dependente_id IS NULL
                 ORDER BY e.data_prevista
             """).fetchall()
             # Empréstimos de dependentes

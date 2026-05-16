@@ -1017,25 +1017,50 @@ class EmprestimosFrame(tk.Frame):
         form = tk.Frame(self, bg=COR_CARD, padx=24, pady=20)
         form.pack(fill="x", padx=30, pady=(0, 16))
 
+        form.columnconfigure(1, weight=1)
+        form.columnconfigure(3, weight=1)
+
         tk.Label(form, text="Livro*", bg=COR_CARD, fg=COR_TEXTO, font=FONTE).grid(
-            row=0, column=0, sticky="w", pady=6, padx=(0, 12))
-        self.livro_var = tk.StringVar()
-        self.livro_entry = ttk.Combobox(form, textvariable=self.livro_var, width=46,
-                                         postcommand=self._preparar_livros)
-        self.livro_entry.state(['!readonly'])
-        self.livro_entry.grid(row=0, column=1, pady=6, padx=(0, 20))
-        self.livro_entry.bind('<<ComboboxSelected>>', self._on_livro_select)
-        self.livro_entry.bind('<KeyRelease>', self._filtrar_livros)
+            row=0, column=0, sticky="w", pady=(6, 0), padx=(0, 8))
+        self.livro_search_var = tk.StringVar()
+        self.livro_search = tk.Entry(form, textvariable=self.livro_search_var,
+                                      font=FONTE, relief="solid", bd=1)
+        self.livro_search.grid(row=0, column=1, sticky="ew", pady=(6, 0), padx=(0, 20))
+        self.livro_search.bind('<KeyRelease>', self._filtrar_livros_lista)
 
         tk.Label(form, text="Pessoa*", bg=COR_CARD, fg=COR_TEXTO, font=FONTE).grid(
-            row=0, column=2, sticky="w", pady=6, padx=(0, 12))
-        self.pessoa_var = tk.StringVar()
-        self.pessoa_entry = ttk.Combobox(form, textvariable=self.pessoa_var, width=34,
-                                          postcommand=self._preparar_pessoas)
-        self.pessoa_entry.state(['!readonly'])
-        self.pessoa_entry.grid(row=0, column=3, pady=6)
-        self.pessoa_entry.bind('<<ComboboxSelected>>', self._on_pessoa_select)
-        self.pessoa_entry.bind('<KeyRelease>', self._filtrar_pessoas)
+            row=0, column=2, sticky="w", pady=(6, 0), padx=(0, 8))
+        self.pessoa_search_var = tk.StringVar()
+        self.pessoa_search = tk.Entry(form, textvariable=self.pessoa_search_var,
+                                       font=FONTE, relief="solid", bd=1)
+        self.pessoa_search.grid(row=0, column=3, sticky="ew", pady=(6, 0))
+        self.pessoa_search.bind('<KeyRelease>', self._filtrar_pessoas_lista)
+
+        liv_frame = tk.Frame(form, bg=COR_CARD)
+        liv_frame.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(4, 10), padx=(0, 10))
+        liv_frame.rowconfigure(0, weight=1)
+        liv_frame.columnconfigure(0, weight=1)
+        self.livro_listbox = tk.Listbox(liv_frame, font=FONTE, relief="solid", bd=1,
+                                         selectmode="browse", activestyle="none",
+                                         highlightthickness=0)
+        liv_sb = tk.Scrollbar(liv_frame, orient="vertical", command=self.livro_listbox.yview)
+        self.livro_listbox.configure(yscrollcommand=liv_sb.set)
+        self.livro_listbox.grid(row=0, column=0, sticky="nsew")
+        liv_sb.grid(row=0, column=1, sticky="ns")
+        self.livro_listbox.bind('<<ListboxSelect>>', self._on_livro_lista_select)
+
+        pess_frame = tk.Frame(form, bg=COR_CARD)
+        pess_frame.grid(row=1, column=2, columnspan=2, sticky="nsew", pady=(4, 10))
+        pess_frame.rowconfigure(0, weight=1)
+        pess_frame.columnconfigure(0, weight=1)
+        self.pessoa_listbox = tk.Listbox(pess_frame, font=FONTE, relief="solid", bd=1,
+                                          selectmode="browse", activestyle="none",
+                                          highlightthickness=0)
+        pess_sb = tk.Scrollbar(pess_frame, orient="vertical", command=self.pessoa_listbox.yview)
+        self.pessoa_listbox.configure(yscrollcommand=pess_sb.set)
+        self.pessoa_listbox.grid(row=0, column=0, sticky="nsew")
+        pess_sb.grid(row=0, column=1, sticky="ns")
+        self.pessoa_listbox.bind('<<ListboxSelect>>', self._on_pessoa_lista_select)
 
         tk.Label(form, text="Prazo (dias)", bg=COR_CARD, fg=COR_TEXTO, font=FONTE).grid(
             row=2, column=0, sticky="w", pady=6, padx=(0, 12))
@@ -1061,70 +1086,84 @@ class EmprestimosFrame(tk.Frame):
         self.tv.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(0, 20))
         sb.pack(side="left", fill="y", pady=(0, 20), padx=(0, 10))
 
-    def _preparar_livros(self):
-        q = self.livro_var.get().strip().lower()
-        self._livro_selecionado_id = None
+        self._carregar_livros_lista()
+        self._carregar_pessoas_lista()
+
+    def _carregar_livros_lista(self, q=""):
+        self.livro_listbox.delete(0, "end")
+        self._livros_resultados = {}
         with get_conn() as c:
-            if len(q) < 3:
+            if len(q) < 1:
                 rows = c.execute(
-                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 ORDER BY titulo LIMIT 10"
+                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 ORDER BY titulo"
                 ).fetchall()
             else:
                 rows = c.execute(
-                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 AND (LOWER(titulo) LIKE ? OR LOWER(autor) LIKE ?) LIMIT 15",
+                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 AND (LOWER(titulo) LIKE ? OR LOWER(autor) LIKE ?) ORDER BY titulo",
                     (f"%{q}%", f"%{q}%")
                 ).fetchall()
-        if rows:
-            items = [f"{r[1]} — {r[2]}" for r in rows]
-            self._livros_resultados = {items[i]: rows[i][0] for i in range(len(rows))}
-            self.livro_entry['values'] = items
-        else:
-            self.livro_entry['values'] = []
+        for r in rows:
+            txt = f"{r[1]} — {r[2]}"
+            self._livros_resultados[txt] = r[0]
+            self.livro_listbox.insert("end", txt)
 
-    def _preparar_pessoas(self):
-        q = self.pessoa_var.get().strip().lower()
+    def _carregar_pessoas_lista(self, q=""):
+        self.pessoa_listbox.delete(0, "end")
+        self._pessoas_resultados = {}
+        with get_conn() as c:
+            if len(q) < 1:
+                rows = c.execute(
+                    "SELECT id, nome FROM associados WHERE ativo=1 ORDER BY nome"
+                ).fetchall()
+                rows2 = c.execute(
+                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 ORDER BY d.nome"
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    "SELECT id, nome FROM associados WHERE ativo=1 AND (LOWER(nome) LIKE ? OR LOWER(matricula) LIKE ?) ORDER BY nome",
+                    (f"%{q}%", f"%{q}%")
+                ).fetchall()
+                rows2 = c.execute(
+                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 AND (LOWER(d.nome) LIKE ? OR LOWER(a.nome) LIKE ?) ORDER BY d.nome",
+                    (f"%{q}%", f"%{q}%")
+                ).fetchall()
+        for r in rows:
+            txt = f"{r[1]} (Associado)"
+            self._pessoas_resultados[txt] = (r[0], 'associado')
+            self.pessoa_listbox.insert("end", txt)
+        for r in rows2:
+            txt = f"{r[1]} (Dependente de {r[2]})"
+            self._pessoas_resultados[txt] = (r[0], 'dependente')
+            self.pessoa_listbox.insert("end", txt)
+
+    def _filtrar_livros_lista(self, event=None):
+        q = self.livro_search_var.get().strip().lower()
+        self._livro_selecionado_id = None
+        self._carregar_livros_lista(q)
+
+    def _filtrar_pessoas_lista(self, event=None):
+        q = self.pessoa_search_var.get().strip().lower()
         self._pessoa_selecionada_id = None
         self._pessoa_tipo = None
-        resultados = {}
-        with get_conn() as c:
-            if len(q) < 3:
-                rows = c.execute(
-                    "SELECT id, nome FROM associados WHERE ativo=1 ORDER BY nome LIMIT 8"
-                ).fetchall()
-                rows2 = c.execute(
-                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 ORDER BY d.nome LIMIT 6"
-                ).fetchall()
-            else:
-                rows = c.execute(
-                    "SELECT id, nome FROM associados WHERE ativo=1 AND (LOWER(nome) LIKE ? OR LOWER(matricula) LIKE ?) LIMIT 10",
-                    (f"%{q}%", f"%{q}%")
-                ).fetchall()
-                rows2 = c.execute(
-                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 AND (LOWER(d.nome) LIKE ? OR LOWER(a.nome) LIKE ?) LIMIT 10",
-                    (f"%{q}%", f"%{q}%")
-                ).fetchall()
-            for r in rows:
-                resultados[f"{r[1]} (Associado)"] = (r[0], 'associado')
-            for r in rows2:
-                resultados[f"{r[1]} (Dependente de {r[2]})"] = (r[0], 'dependente')
-        self._pessoas_resultados = resultados
-        self.pessoa_entry['values'] = list(resultados.keys())
+        self._carregar_pessoas_lista(q)
 
-    def _filtrar_livros(self, event=None):
-        self._preparar_livros()
+    def _on_livro_lista_select(self, event=None):
+        sel = self.livro_listbox.curselection()
+        if not sel:
+            return
+        txt = self.livro_listbox.get(sel[0])
+        if txt in self._livros_resultados:
+            self._livro_selecionado_id = self._livros_resultados[txt]
+            self.livro_search_var.set(txt)
 
-    def _on_livro_select(self, event=None):
-        texto = self.livro_entry.get()
-        if texto in self._livros_resultados:
-            self._livro_selecionado_id = self._livros_resultados[texto]
-
-    def _filtrar_pessoas(self, event=None):
-        self._preparar_pessoas()
-
-    def _on_pessoa_select(self, event=None):
-        texto = self.pessoa_entry.get()
-        if texto in self._pessoas_resultados:
-            self._pessoa_selecionada_id, self._pessoa_tipo = self._pessoas_resultados[texto]
+    def _on_pessoa_lista_select(self, event=None):
+        sel = self.pessoa_listbox.curselection()
+        if not sel:
+            return
+        txt = self.pessoa_listbox.get(sel[0])
+        if txt in self._pessoas_resultados:
+            self._pessoa_selecionada_id, self._pessoa_tipo = self._pessoas_resultados[txt]
+            self.pessoa_search_var.set(txt)
 
     def refresh(self):
         self.tv.delete(*self.tv.get_children())
@@ -1155,8 +1194,8 @@ class EmprestimosFrame(tk.Frame):
         self.tv.tag_configure("late", foreground=COR_VERMELHO)
 
     def _registrar(self):
-        livro_texto = self.livro_var.get().strip()
-        pessoa_texto = self.pessoa_var.get().strip()
+        livro_texto = self.livro_search_var.get().strip()
+        pessoa_texto = self.pessoa_search_var.get().strip()
         
         if not livro_texto or livro_texto not in self._livros_resultados:
             messagebox.showwarning("Aviso", "Selecione um livro válido da lista.")
@@ -1193,11 +1232,13 @@ class EmprestimosFrame(tk.Frame):
         logger.info("Empréstimo ID=%d: livro_id=%d, %s_id=%d, devolução=%s",
                     cursor.lastrowid, self._livro_selecionado_id, self._pessoa_tipo, self._pessoa_selecionada_id, prev)
         messagebox.showinfo("Sucesso", f"Empréstimo registrado!\nDevolução prevista: {fmt(prev)}")
-        self.livro_var.set("")
-        self.pessoa_var.set("")
+        self.livro_search_var.set("")
+        self.pessoa_search_var.set("")
         self._livro_selecionado_id   = None
         self._pessoa_selecionada_id = None
         self._pessoa_tipo            = None
+        self._carregar_livros_lista()
+        self._carregar_pessoas_lista()
         self.refresh()
 
 # ─── DEVOLUÇÕES ────────────────────────────────────────────────────────────────

@@ -5,7 +5,11 @@ from datetime import datetime, date, timedelta
 import os
 import logging
 try:
-    from PIL import Image, ImageTk
+    from PIL import Image
+    try:
+        from PIL import ImageTk
+    except ImportError:
+        ImageTk = None
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
@@ -164,16 +168,16 @@ def fmt(d):
 
 # ─── ESTILO GLOBAL ─────────────────────────────────────────────────────────────
 
-# Paleta Verde Oliva
-COR_FUNDO    = "#2d3319"
-COR_PAINEL   = "#3a4420"
-COR_CARD     = "#4a5530"
-COR_AZUL     = "#6b8e23"
-COR_VERDE    = "#556b2f"
-COR_LARANJA  = "#8b9a5b"
-COR_VERMELHO = "#8b4513"
-COR_TEXTO    = "#f5f5dc"
-COR_SUBTEXTO = "#b8b884"
+# Paleta Clara
+COR_FUNDO    = "#F0F4F8"
+COR_PAINEL   = "#FFFFFF"
+COR_CARD     = "#FFFFFF"
+COR_AZUL     = "#4A90D9"
+COR_VERDE    = "#27AE60"
+COR_LARANJA  = "#E67E22"
+COR_VERMELHO = "#E74C3C"
+COR_TEXTO    = "#2C3E50"
+COR_SUBTEXTO = "#7F8C8D"
 FONTE        = ("Segoe UI", 10)
 FONTE_BOLD   = ("Segoe UI", 10, "bold")
 FONTE_TITULO = ("Segoe UI", 14, "bold")
@@ -269,7 +273,7 @@ class App(tk.Tk):
 
     def _build_main_ui(self):
         self.bg_label = None
-        if PIL_AVAILABLE:
+        if PIL_AVAILABLE and ImageTk is not None:
             img_path = os.path.join(os.path.dirname(__file__), "imagens", "fundo.jpg")
             if os.path.exists(img_path):
                 try:

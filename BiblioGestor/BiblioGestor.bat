@@ -1,3 +1,7 @@
 @echo off
 cd /d "%~dp0"
-start "" pythonw biblioteca.py
+if exist "dist\BiblioGestor.exe" (
+    start "" "dist\BiblioGestor.exe"
+) else (
+    start "" pythonw biblioteca.py
+)

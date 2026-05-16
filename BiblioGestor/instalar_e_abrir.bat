@@ -8,7 +8,16 @@ echo     BiblioGestor - Instalacao e Execucao
 echo  ============================================
 echo.
 
-REM ── Verifica se Python está instalado ──
+set "SCRIPT_DIR=%~dp0"
+
+REM ── Verifica se ja existe executavel compilado ──
+if exist "%SCRIPT_DIR%dist\BiblioGestor.exe" (
+    echo  [OK] Executavel encontrado. Iniciando...
+    start "" "%SCRIPT_DIR%dist\BiblioGestor.exe"
+    exit /b 0
+)
+
+REM ── Verifica Python ──
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo  [!] Python nao encontrado. Baixando instalador...
@@ -20,7 +29,7 @@ if %errorlevel% neq 0 (
     echo  [*] Instalando Python (pode demorar alguns minutos)...
     "%TEMP%\python_installer.exe" /quiet InstallAllUsers=0 PrependPath=1 Include_tcltk=1
 
-    REM Atualiza PATH para esta sessão
+    REM Atualiza PATH para esta sessao
     set "PATH=%LOCALAPPDATA%\Programs\Python\Python312;%LOCALAPPDATA%\Programs\Python\Python312\Scripts;%PATH%"
 
     python --version >nul 2>&1
@@ -37,32 +46,27 @@ if %errorlevel% neq 0 (
     echo  [OK] Python encontrado.
 )
 
-REM ── Instala dependências ──
+REM ── Instala dependencias ──
 echo.
 echo  [*] Verificando dependencias...
-pip show pandas >nul 2>&1
-if %errorlevel% neq 0 (
-    echo  [*] Instalando pandas e openpyxl...
-    pip install pandas openpyxl --quiet
-)
-echo  [OK] Dependencias prontas.
 
-REM ── Cria atalho na Área de Trabalho ──
+pip install pandas openpyxl Pillow --quiet
+echo  [OK] Dependencias instaladas.
+
+REM ── Cria atalho na Area de Trabalho ──
 echo.
 echo  [*] Criando atalho na Area de Trabalho...
-set "SCRIPT_DIR=%~dp0"
-set "SHORTCUT=%USERPROFILE%\Desktop\BiblioGestor.lnk"
 
 powershell -Command ^
   "$ws = New-Object -ComObject WScript.Shell; ^
-   $s = $ws.CreateShortcut('%SHORTCUT%'); ^
+   $s = $ws.CreateShortcut('%USERPROFILE%\Desktop\BiblioGestor.lnk'); ^
    $s.TargetPath = 'pythonw.exe'; ^
    $s.Arguments = '\"%SCRIPT_DIR%biblioteca.py\"'; ^
    $s.WorkingDirectory = '%SCRIPT_DIR%'; ^
    $s.Description = 'BiblioGestor - Sistema de Biblioteca'; ^
-   $s.Save()"
+   $s.Save()" >nul 2>&1
 
-if exist "%SHORTCUT%" (
+if exist "%USERPROFILE%\Desktop\BiblioGestor.lnk" (
     echo  [OK] Atalho criado na Area de Trabalho!
 ) else (
     echo  [AVISO] Nao foi possivel criar o atalho automaticamente.

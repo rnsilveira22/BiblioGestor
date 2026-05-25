@@ -129,7 +129,7 @@ def importar():
             except sqlite3.Error as e:
                 logger.error(f"Erro ao inserir '{titulo}': {e}")
 
-    print(f"\n✅ Importação concluída!")
+    print(f"\nImportacao concluida!")
     print(f"   Livros inseridos : {inseridos}")
     print(f"   Total exemplares : {grupos['exemplares'].sum()}")
 

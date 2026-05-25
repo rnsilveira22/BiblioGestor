@@ -45,6 +45,57 @@ def importar():
     print(f"Total de exemplares: {grupos['exemplares'].sum()}")
 
     with get_conn() as conn:
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS livros (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero        TEXT,
+            titulo        TEXT NOT NULL,
+            autor         TEXT NOT NULL,
+            pelo_espirito TEXT,
+            categoria     TEXT,
+            exemplares    INTEGER DEFAULT 1,
+            disponivel    INTEGER DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS associados (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome      TEXT NOT NULL,
+            tipo      TEXT DEFAULT 'Associado',
+            matricula TEXT,
+            telefone  TEXT,
+            email     TEXT,
+            ativo     INTEGER DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS dependentes (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            associado_id  INTEGER NOT NULL,
+            nome          TEXT NOT NULL,
+            parentesco    TEXT,
+            telefone      TEXT,
+            email         TEXT,
+            ativo         INTEGER DEFAULT 1,
+            FOREIGN KEY(associado_id) REFERENCES associados(id)
+        );
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome      TEXT NOT NULL,
+            usuario   TEXT NOT NULL UNIQUE,
+            senha     TEXT NOT NULL,
+            tipo      TEXT DEFAULT 'Operador',
+            ativo     INTEGER DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS emprestimos (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            livro_id        INTEGER NOT NULL,
+            associado_id    INTEGER,
+            dependente_id  INTEGER,
+            data_emprestimo TEXT NOT NULL,
+            data_prevista   TEXT NOT NULL,
+            data_devolucao  TEXT,
+            FOREIGN KEY(livro_id)    REFERENCES livros(id),
+            FOREIGN KEY(associado_id) REFERENCES associados(id),
+            FOREIGN KEY(dependente_id) REFERENCES dependentes(id)
+        );
+        """)
         conn.execute("PRAGMA foreign_keys = OFF")
 
         conn.execute("DELETE FROM emprestimos")

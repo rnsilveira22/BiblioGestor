@@ -39,7 +39,7 @@ env/
 
 # Arquivos temporários
 
-!BiblioGestor/BIBLIOTECA_CATEGORIZADA_2026.xlsx
+!BiblioGestor/BIBLIOTECA_CATEGORIZADA.xlsx
 *.log
 .DS_Store
 

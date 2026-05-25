@@ -7,7 +7,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PLANILHA = os.path.join(BASE_DIR, "BIBLIOTECA_CATEGORIZADA_2026.xlsx")
+PLANILHA = os.path.join(BASE_DIR, "BIBLIOTECA_CATEGORIZADA.xlsx")
 DB_FILE = os.path.join(BASE_DIR, "biblioteca.db")
 
 

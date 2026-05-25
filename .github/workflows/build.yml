@@ -1,0 +1,52 @@
+name: Build Windows Executable
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: BiblioGestor
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pandas openpyxl Pillow bcrypt
+
+      - name: Generate database from spreadsheet
+        run: python importar_livros.py
+
+      - name: Build executable
+        run: |
+          pyinstaller --noconfirm --onefile --windowed ^
+            --name "BiblioGestor" ^
+            --add-data "biblioteca.db;." ^
+            --hidden-import "pandas" ^
+            --hidden-import "openpyxl" ^
+            --hidden-import "PIL" ^
+            --hidden-import "PIL._tkinter_finder" ^
+            --hidden-import "bcrypt" ^
+            --collect-submodules "PIL" ^
+            "biblioteca.py"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiblioGestor-Windows
+          path: BiblioGestor/dist/BiblioGestor.exe

@@ -38,7 +38,8 @@ env/
 *.sqlite3
 
 # Arquivos temporários
-*.xlsx
+
+!BiblioGestor/BIBLIOTECA_CATEGORIZADA_2026.xlsx
 *.log
 .DS_Store
 

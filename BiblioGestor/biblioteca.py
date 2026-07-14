@@ -307,18 +307,22 @@ class App(tk.Tk):
         self.frames = {}
         self.nav_buttons = {}
 
-        menus = [
-            ("🏠  Painel",        PainelFrame),
-            ("📖  Livros",        LivrosFrame),
-            ("👤  Associados",    AssociadosFrame),
-            ("👥  Dependentes",   DependentesFrame),
-            ("🔄  Empréstimos",   EmprestimosFrame),
-            ("↩️  Devoluções",    DevolucoesFrame),
-            ("📊  Relatórios",    RelatoriosFrame),
-        ]
-
         if self.usuario_logado['tipo'] == 'Administrador':
-            menus.append(("🔑  Usuários", UsuariosFrame))
+            menus = [
+                ("🏠  Painel",        PainelFrame),
+                ("📖  Livros",        LivrosFrame),
+                ("👤  Associados",    AssociadosFrame),
+                ("👥  Dependentes",   DependentesFrame),
+                ("🔄  Empréstimos",   EmprestimosFrame),
+                ("↩️  Devoluções",    DevolucoesFrame),
+                ("📊  Relatórios",    RelatoriosFrame),
+                ("🔑  Usuários",      UsuariosFrame),
+            ]
+        else:
+            menus = [
+                ("🔄  Empréstimos",   EmprestimosFrame),
+                ("↩️  Devoluções",    DevolucoesFrame),
+            ]
 
         menus.append(("🚪  Sair", "logout"))
 
@@ -358,7 +362,7 @@ class App(tk.Tk):
             b.pack(fill="x")
             self.nav_buttons[name] = b
 
-        nav("🏠  Painel")
+        nav(menus[0][0])
 
 # ─── PAINEL ────────────────────────────────────────────────────────────────────
 

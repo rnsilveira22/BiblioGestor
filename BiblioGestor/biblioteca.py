@@ -1,6 +1,10 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import sqlite3
+import subprocess
+import shutil
+import sys
+import threading
 import unicodedata
 from datetime import datetime, date, timedelta
 import os
@@ -20,8 +24,11 @@ logger = logging.getLogger(__name__)
 
 # ─── BANCO DE DADOS ────────────────────────────────────────────────────────────
 
-DB_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "biblioteca.db")
-PRAZO_DIAS = 14
+RAIZ_APP    = os.path.dirname(os.path.abspath(__file__))
+DB_FILE     = os.path.join(RAIZ_APP, "biblioteca.db")
+VERSAO      = "1.0.0"
+REPO_GITHUB = "rnsilveira22/BiblioGestor"
+PRAZO_DIAS  = 14
 
 def get_conn():
     conn = sqlite3.connect(DB_FILE)
@@ -355,6 +362,7 @@ class App(tk.Tk):
                 ("↩️  Devoluções",    DevolucoesFrame),
                 ("📊  Relatórios",    RelatoriosFrame),
                 ("🔑  Usuários",      UsuariosFrame),
+                ("⬆️  Atualizar",     AtualizacaoFrame),
             ]
         else:
             menus = [
@@ -1501,6 +1509,179 @@ class RelatoriosFrame(tk.Frame):
             """).fetchall()
         for r in rows:
             self.tv_pop.insert("", "end", values=r)
+
+# ─── ATUALIZAÇÃO DO SISTEMA ────────────────────────────────────────────────────
+
+class AtualizacaoFrame(tk.Frame):
+    def __init__(self, parent, app):
+        super().__init__(parent, bg=COR_FUNDO)
+        self.app = app
+        self._ocupado = False
+        self._tem_atualizacao = False
+        self._build()
+
+    def _build(self):
+        label(self, "⬆️  Atualizar Sistema", bold=True,
+              font=FONTE_TITULO).pack(anchor="w", padx=30, pady=(24, 8))
+        card = tk.Frame(self, bg=COR_CARD)
+        card.pack(fill="x", padx=30, pady=8)
+
+        self.lbl_versao = label(card, text=self._texto_versao(), bg=COR_CARD)
+        self.lbl_versao.pack(anchor="w", padx=20, pady=(16, 4))
+
+        self.lbl_status = label(card, cor=COR_SUBTEXTO,
+                                text="Clique em 'Verificar atualizações' para conferir se há nova versão.")
+        self.lbl_status.pack(anchor="w", padx=20, pady=4)
+
+        self.pb = ttk.Progressbar(card, mode="determinate", maximum=100)
+        self.pb.pack(fill="x", padx=20, pady=(4, 12))
+
+        bf = tk.Frame(card, bg=COR_CARD)
+        bf.pack(fill="x", padx=20, pady=(0, 16))
+        self.btn_verificar = tk.Button(bf, text="🔍 Verificar atualizações", command=self._verificar)
+        style_btn(self.btn_verificar)
+        self.btn_verificar.pack(side="left")
+        self.btn_atualizar = tk.Button(bf, text="⬆️ Baixar e instalar agora",
+                                       command=self._atualizar, state="disabled")
+        style_btn(self.btn_atualizar, COR_VERDE)
+        self.btn_atualizar.pack(side="left", padx=(10, 0))
+
+    def _texto_versao(self):
+        commit = "?"
+        if shutil.which("git"):
+            try:
+                commit = self._git("rev-parse", "--short", "HEAD")
+            except Exception:
+                pass
+        return f"Versão instalada: {VERSAO}   •   commit {commit}"
+
+    def _git(self, *args):
+        r = subprocess.run(["git", *args], cwd=RAIZ_APP, capture_output=True,
+                           text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr or "").strip()
+                               or f"Falha no comando git {' '.join(args)}")
+        return r.stdout.strip()
+
+    def _status(self, texto, pct=None):
+        def _aplicar():
+            self.lbl_status.config(text=texto)
+            if pct is not None:
+                self.pb["value"] = pct
+        self.after(0, _aplicar)
+
+    def _verificar(self):
+        if self._ocupado:
+            return
+        self._ocupado = True
+        self.btn_verificar.config(state="disabled")
+        self._tem_atualizacao = False
+        self.btn_atualizar.config(state="disabled")
+        self._status("Verificando atualizações…", 10)
+
+        def trabalho():
+            try:
+                self._git("fetch", "origin")
+                atras = int(self._git("rev-list", "--count", "HEAD..origin/main") or 0)
+                adiant = int(self._git("rev-list", "--count", "origin/main..HEAD") or 0)
+                if atras == 0:
+                    self._status(f"✅ Sistema já está na versão mais recente ({VERSAO}).", 100)
+                else:
+                    self._tem_atualizacao = True
+                    msg = (f"🆕 Nova versão disponível! O sistema está "
+                           f"{atras} atualização(ões) atrás do repositório.")
+                    if adiant:
+                        msg += (f" ⚠️ Atenção: há {adiant} commit(s) locais que "
+                                f"serão substituídos pela versão oficial.")
+                    self._status(msg + " Clique em 'Baixar e instalar agora'.", 100)
+            except Exception as e:
+                logger.exception("Falha ao verificar atualizações")
+                self._status(f"❌ Erro ao verificar: {e}", 0)
+            finally:
+                def _liberar():
+                    self._ocupado = False
+                    self.btn_verificar.config(state="normal")
+                    self.btn_atualizar.config(
+                        state="normal" if self._tem_atualizacao else "disabled")
+                self.after(0, _liberar)
+
+        threading.Thread(target=trabalho, daemon=True).start()
+
+    def _atualizar(self):
+        if self._ocupado or not self._tem_atualizacao:
+            return
+        if not messagebox.askyesno(
+                "Confirmar atualização",
+                "O sistema será atualizado para a nova versão.\n\n"
+                "• O banco de dados NÃO é afetado (backup automático antes).\n"
+                "• Alterações locais no código serão substituídas pela versão oficial.\n\n"
+                "Deseja continuar?"):
+            return
+        self._ocupado = True
+        self.btn_verificar.config(state="disabled")
+        self.btn_atualizar.config(state="disabled")
+
+        def trabalho():
+            try:
+                self._status("1/5 — Backup do banco de dados…", 15)
+                os.makedirs(os.path.join(RAIZ_APP, "database"), exist_ok=True)
+                backup = os.path.join(
+                    RAIZ_APP, "database",
+                    f"biblioteca_backup_{datetime.now():%Y%m%d_%H%M%S}.db")
+                if os.path.exists(DB_FILE):
+                    shutil.copy2(DB_FILE, backup)
+                    logger.info("Backup do banco salvo em: %s", backup)
+
+                self._status("2/5 — Baixando atualização do GitHub…", 35)
+                self._git("fetch", "origin")
+
+                self._status("3/5 — Instalando nova versão…", 55)
+                self._git("reset", "--hard", "origin/main")
+
+                self._status("4/5 — Instalando dependências (pip)…", 75)
+                req = os.path.join(RAIZ_APP, "requirements.txt")
+                if os.path.exists(req):
+                    r = subprocess.run(
+                        [sys.executable, "-m", "pip", "install", "--quiet",
+                         "--disable-pip-version-check", "-r", req],
+                        capture_output=True, text=True)
+                    if r.returncode != 0:
+                        raise RuntimeError("Falha no pip: "
+                                           + (r.stderr or "").strip()[-300:])
+
+                self._status("✅ Atualização concluída com sucesso!", 100)
+                evt = threading.Event()
+                resposta = {"reiniciar": False}
+
+                def perguntar():
+                    resposta["reiniciar"] = messagebox.askyesno(
+                        "Atualização concluída",
+                        "Sistema atualizado com sucesso!\n\nReiniciar o BiblioGestor agora?",
+                        parent=self)
+                    evt.set()
+
+                self.after(0, perguntar)
+                evt.wait(timeout=300)
+                if resposta["reiniciar"]:
+                    self._status("Reiniciando o sistema…", 100)
+                    subprocess.Popen([sys.executable,
+                                      os.path.join(RAIZ_APP, "biblioteca.py")],
+                                     cwd=RAIZ_APP)
+                    self.after(0, self.app.destroy)
+            except Exception as e:
+                logger.exception("Falha na atualização")
+                self._status(f"❌ Erro na atualização: {e}", 0)
+                self.after(0, lambda: messagebox.showerror(
+                    "Erro na atualização", str(e), parent=self))
+            finally:
+                def _liberar():
+                    self._ocupado = False
+                    self.btn_verificar.config(state="normal")
+                    self.btn_atualizar.config(
+                        state="normal" if self._tem_atualizacao else "disabled")
+                self.after(0, _liberar)
+
+        threading.Thread(target=trabalho, daemon=True).start()
 
 # ─── HELPERS ───────────────────────────────────────────────────────────────────
 

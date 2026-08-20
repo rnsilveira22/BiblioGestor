@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import sqlite3
+import unicodedata
 from datetime import datetime, date, timedelta
 import os
 import logging
@@ -81,7 +82,6 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_livros_titulo ON livros(titulo);
         CREATE INDEX IF NOT EXISTS idx_associados_nome ON associados(nome);
         CREATE INDEX IF NOT EXISTS idx_dependentes_nome ON dependentes(nome);
-        CREATE INDEX IF NOT EXISTS idx_usuarios_usuario ON usuarios(usuario);
         """)
     migrate_db()
 
@@ -100,8 +100,8 @@ def migrate_db():
         # Adicionar coluna associado_id se não existir
         cols_emp = [r[1] for r in c.execute("PRAGMA table_info(emprestimos)").fetchall()]
         if "usuario_id" in cols_emp and "associado_id" not in cols_emp:
-            c.execute("ALTER TABLE emprestimos ADD COLUMN associado_id INTEGER")
-            c.execute("UPDATE emprestimos SET associado_id = usuario_id WHERE associado_id IS NULL")
+            # noinspection SqlResolve
+            c.execute("ALTER TABLE emprestimos RENAME COLUMN usuario_id TO associado_id")
         if "associado_id" not in cols_emp:
             c.execute("ALTER TABLE emprestimos ADD COLUMN associado_id INTEGER")
         if "dependente_id" not in cols_emp:
@@ -146,6 +146,17 @@ def migrate_db():
             c.execute("INSERT INTO usuarios(nome, usuario, senha, tipo) VALUES(?,?,?,?)",
                       ("Administrador", "admin", "admin123", "Administrador"))
 
+        # Normalizar nomes de usuário existentes (minúsculas, sem acentos)
+        for uid, usr in c.execute("SELECT id, usuario FROM usuarios").fetchall():
+            norm = normalizar_usuario(usr)
+            if not norm or norm == usr:
+                continue
+            try:
+                c.execute("UPDATE usuarios SET usuario=? WHERE id=?", (norm, uid))
+            except sqlite3.IntegrityError:
+                logger.warning("Usuário ID=%d ('%s') mantido sem alteração: '%s' já existe",
+                               uid, usr, norm)
+
         c.execute("CREATE INDEX IF NOT EXISTS idx_emprestimos_devolucao ON emprestimos(data_devolucao, data_prevista)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_livros_titulo ON livros(titulo)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_associados_nome ON associados(nome)")
@@ -164,6 +175,23 @@ def fmt(d):
         return datetime.strptime(d, "%Y-%m-%d").strftime("%d/%m/%Y")
     except (ValueError, TypeError):
         return d
+
+def normalizar_usuario(texto):
+    """Converte para minúsculas e remove acentos (ex.: 'José' -> 'jose')."""
+    if not texto:
+        return ""
+    nfkd = unicodedata.normalize("NFD", texto)
+    sem_acento = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+    return sem_acento.strip().lower()
+
+def _vincular_normalizacao(var):
+    """Faz o input converter em tempo real para minúsculas sem acentos."""
+    def _normalizar(*_):
+        valor = var.get()
+        norm = normalizar_usuario(valor)
+        if valor != norm:
+            var.set(norm)
+    var.trace_add("write", _normalizar)
 
 
 # ─── ESTILO GLOBAL ─────────────────────────────────────────────────────────────
@@ -220,6 +248,7 @@ class LoginFrame(tk.Frame):
 
         tk.Label(f, text="Usuário:", bg=COR_PAINEL, fg=COR_TEXTO, font=FONTE).grid(row=0, column=0, sticky="e", padx=(0, 8), pady=6)
         self.usuario_var = tk.StringVar()
+        _vincular_normalizacao(self.usuario_var)
         e1 = entry_widget(f, textvariable=self.usuario_var, width=20)
         e1.grid(row=0, column=1, pady=6)
         e1.focus()
@@ -238,7 +267,7 @@ class LoginFrame(tk.Frame):
         b.grid(row=2, column=0, columnspan=2, pady=20)
 
     def _login(self):
-        usuario = self.usuario_var.get().strip()
+        usuario = normalizar_usuario(self.usuario_var.get())
         senha = self.senha_var.get().strip()
         with get_conn() as c:
             row = c.execute("SELECT id, nome, tipo FROM usuarios WHERE usuario=? AND senha=? AND ativo=1",
@@ -945,34 +974,46 @@ class UsuariosFrame(tk.Frame):
                 e.grid(row=i, column=1, padx=(4, 16), pady=6)
                 entries[key] = e
             else:
-                e = entry_widget(win, width=36)
+                if key == "usuario":
+                    var = tk.StringVar()
+                    e = entry_widget(win, textvariable=var, width=36)
+                    _vincular_normalizacao(var)
+                else:
+                    e = entry_widget(win, width=36)
                 e.grid(row=i, column=1, padx=(4, 16), pady=6)
                 if dados and dados.get(key):
-                    e.insert(0, dados.get(key, ""))
+                    if key == "usuario":
+                        var.set(normalizar_usuario(dados.get(key, "")))
+                    else:
+                        e.insert(0, dados.get(key, ""))
                 entries[key] = e
 
         def salvar():
             nome = entries["nome"].get().strip()
-            usuario = entries["usuario"].get().strip()
+            usuario = normalizar_usuario(entries["usuario"].get())
             senha = entries["senha"].get()
             if not nome or not usuario:
                 messagebox.showwarning("Aviso", "Nome e Usuário são obrigatórios.", parent=win)
                 return
             tipo = entries["tipo"].get()
-            with get_conn() as c:
-                if dados:
-                    if senha:
-                        c.execute("UPDATE usuarios SET nome=?, usuario=?, senha=?, tipo=? WHERE id=?",
-                                  (nome, usuario, senha, tipo, dados["id"]))
+            try:
+                with get_conn() as c:
+                    if dados:
+                        if senha:
+                            c.execute("UPDATE usuarios SET nome=?, usuario=?, senha=?, tipo=? WHERE id=?",
+                                      (nome, usuario, senha, tipo, dados["id"]))
+                        else:
+                            c.execute("UPDATE usuarios SET nome=?, usuario=?, tipo=? WHERE id=?",
+                                      (nome, usuario, tipo, dados["id"]))
                     else:
-                        c.execute("UPDATE usuarios SET nome=?, usuario=?, tipo=? WHERE id=?",
-                                  (nome, usuario, tipo, dados["id"]))
-                else:
-                    if not senha:
-                        messagebox.showwarning("Aviso", "Senha é obrigatória para novos usuários.", parent=win)
-                        return
-                    c.execute("INSERT INTO usuarios(nome, usuario, senha, tipo) VALUES(?,?,?,?)",
-                              (nome, usuario, senha, tipo))
+                        if not senha:
+                            messagebox.showwarning("Aviso", "Senha é obrigatória para novos usuários.", parent=win)
+                            return
+                        c.execute("INSERT INTO usuarios(nome, usuario, senha, tipo) VALUES(?,?,?,?)",
+                                  (nome, usuario, senha, tipo))
+            except sqlite3.IntegrityError:
+                messagebox.showerror("Erro", f"O usuário '{usuario}' já existe.", parent=win)
+                return
             win.destroy()
             self.refresh()
 
@@ -1373,18 +1414,25 @@ class RelatoriosFrame(tk.Frame):
         self.tv_hist.delete(*self.tv_hist.get_children())
         with get_conn() as c:
             rows = c.execute("""
-                SELECT e.id, l.titulo, a.nome, e.data_emprestimo, e.data_prevista,
-                       e.data_devolucao
+                SELECT e.id, l.titulo, a.nome, 'Associado', e.data_emprestimo,
+                       e.data_prevista, e.data_devolucao
                 FROM emprestimos e
                 JOIN livros l ON l.id=e.livro_id
                 JOIN associados a ON a.id=e.associado_id
-                WHERE a.nome LIKE ? AND l.titulo LIKE ?
-                ORDER BY e.id DESC
+                WHERE a.nome LIKE ? AND l.titulo LIKE ? AND e.dependente_id IS NULL
             """, (uq, lq)).fetchall()
-        for r in rows:
-            eid, titulo, nome, emp, prev, dev = r
+            rows += c.execute("""
+                SELECT e.id, l.titulo, d.nome, 'Dependente', e.data_emprestimo,
+                       e.data_prevista, e.data_devolucao
+                FROM emprestimos e
+                JOIN livros l ON l.id=e.livro_id
+                JOIN dependentes d ON d.id=e.dependente_id
+                WHERE d.nome LIKE ? AND l.titulo LIKE ?
+            """, (uq, lq)).fetchall()
+        rows.sort(key=lambda r: r[0], reverse=True)
+        for eid, titulo, nome, tipo, emp, prev, dev in rows:
             self.tv_hist.insert("", "end", values=(
-                eid, titulo, nome, fmt(emp), fmt(prev),
+                eid, titulo, nome, tipo, fmt(emp), fmt(prev),
                 fmt(dev) if dev else "Em aberto"
             ))
 

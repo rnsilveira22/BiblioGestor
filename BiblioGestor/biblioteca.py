@@ -90,19 +90,25 @@ def migrate_db():
         tabelas = [r[0] for r in c.execute(
             "SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
 
-        # Migração antiga: usuarios -> associados
-        if "usuarios" in tabelas and "associados" in tabelas:
-            count = c.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0]
-            if count > 0:
-                c.execute("""INSERT OR IGNORE INTO associados(id,nome,tipo,telefone,email,ativo)
-                             SELECT id,nome,tipo,'','',ativo FROM usuarios""")
+        # Migração antiga: usuarios (sócios, sem login) -> associados
+        if "usuarios" in tabelas:
+            cols_usu = [r[1] for r in c.execute("PRAGMA table_info(usuarios)").fetchall()]
+            if "senha" not in cols_usu:
+                if "associados" in tabelas:
+                    count = c.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0]
+                    if count > 0:
+                        c.execute("""INSERT OR IGNORE INTO associados(id,nome,tipo,telefone,email,ativo)
+                                     SELECT id,nome,tipo,'','',ativo FROM usuarios""")
+                c.execute("ALTER TABLE usuarios RENAME TO usuarios_legado")
+                logger.info("Tabela legada 'usuarios' (sócios) migrada para 'associados' "
+                            "e renomeada para 'usuarios_legado'.")
 
         # Adicionar coluna associado_id se não existir
         cols_emp = [r[1] for r in c.execute("PRAGMA table_info(emprestimos)").fetchall()]
         if "usuario_id" in cols_emp and "associado_id" not in cols_emp:
             # noinspection SqlResolve
             c.execute("ALTER TABLE emprestimos RENAME COLUMN usuario_id TO associado_id")
-        if "associado_id" not in cols_emp:
+        elif "associado_id" not in cols_emp:
             c.execute("ALTER TABLE emprestimos ADD COLUMN associado_id INTEGER")
         if "dependente_id" not in cols_emp:
             c.execute("ALTER TABLE emprestimos ADD COLUMN dependente_id INTEGER")
@@ -139,6 +145,7 @@ def migrate_db():
                 ativo     INTEGER DEFAULT 1
             )
         """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_usuario ON usuarios(usuario)")
 
         # Criar usuário admin padrão se não houver nenhum usuário
         count_usuarios = c.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0]

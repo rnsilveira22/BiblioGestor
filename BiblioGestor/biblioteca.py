@@ -24,7 +24,9 @@ DB_FILE    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bibliotec
 PRAZO_DIAS = 14
 
 def get_conn():
-    return sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE)
+    conn.create_function("sem_acento", 1, normalizar_usuario)
+    return conn
 
 def init_db():
     with get_conn() as c:
@@ -526,7 +528,7 @@ class LivrosFrame(tk.Frame):
             if q:
                 rows = c.execute(
                     "SELECT id, numero, titulo, autor, pelo_espirito, categoria, exemplares, disponivel FROM livros "
-                    "WHERE LOWER(titulo) LIKE ? OR LOWER(autor) LIKE ? OR LOWER(categoria) LIKE ? OR LOWER(numero) LIKE ?",
+                    "WHERE sem_acento(titulo) LIKE sem_acento(?) OR sem_acento(autor) LIKE sem_acento(?) OR sem_acento(categoria) LIKE sem_acento(?) OR sem_acento(numero) LIKE sem_acento(?)",
                     (f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
                 ).fetchall()
             else:
@@ -670,7 +672,7 @@ class AssociadosFrame(tk.Frame):
         if q:
             with get_conn() as c:
                 rows = c.execute(
-                    "SELECT id,nome,tipo,matricula,telefone,email FROM associados WHERE ativo=1 AND (LOWER(nome) LIKE ? OR LOWER(matricula) LIKE ?)",
+                    "SELECT id,nome,tipo,matricula,telefone,email FROM associados WHERE ativo=1 AND (sem_acento(nome) LIKE sem_acento(?) OR sem_acento(matricula) LIKE sem_acento(?))",
                     (f"%{q}%", f"%{q}%")
                 ).fetchall()
         else:
@@ -806,8 +808,8 @@ class DependentesFrame(tk.Frame):
                 FROM dependentes d
                 JOIN associados a ON a.id=d.associado_id
                 WHERE d.ativo=1 AND a.ativo=1
-                AND (LOWER(d.nome) LIKE ? OR LOWER(a.nome) LIKE ?)
-                AND (LOWER(a.nome) LIKE ? OR ? = '')
+                AND (sem_acento(d.nome) LIKE sem_acento(?) OR sem_acento(a.nome) LIKE sem_acento(?))
+                AND (sem_acento(a.nome) LIKE sem_acento(?) OR ? = '')
                 ORDER BY a.nome, d.nome
             """, (f"%{q}%", f"%{q}%", f"%{assoc_q}%", assoc_q)).fetchall()
         for r in rows:
@@ -946,7 +948,7 @@ class UsuariosFrame(tk.Frame):
         with get_conn() as c:
             if q:
                 rows = c.execute(
-                    "SELECT id, nome, usuario, tipo, ativo FROM usuarios WHERE LOWER(nome) LIKE ? OR LOWER(usuario) LIKE ?",
+                    "SELECT id, nome, usuario, tipo, ativo FROM usuarios WHERE sem_acento(nome) LIKE sem_acento(?) OR sem_acento(usuario) LIKE sem_acento(?)",
                     (f"%{q}%", f"%{q}%")
                 ).fetchall()
             else:
@@ -1155,7 +1157,7 @@ class EmprestimosFrame(tk.Frame):
                 ).fetchall()
             else:
                 rows = c.execute(
-                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 AND (LOWER(titulo) LIKE ? OR LOWER(autor) LIKE ?) ORDER BY titulo",
+                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 AND (sem_acento(titulo) LIKE sem_acento(?) OR sem_acento(autor) LIKE sem_acento(?)) ORDER BY titulo",
                     (f"%{q}%", f"%{q}%")
                 ).fetchall()
         for r in rows:
@@ -1176,11 +1178,11 @@ class EmprestimosFrame(tk.Frame):
                 ).fetchall()
             else:
                 rows = c.execute(
-                    "SELECT id, nome FROM associados WHERE ativo=1 AND (LOWER(nome) LIKE ? OR LOWER(matricula) LIKE ?) ORDER BY nome",
+                    "SELECT id, nome FROM associados WHERE ativo=1 AND (sem_acento(nome) LIKE sem_acento(?) OR sem_acento(matricula) LIKE sem_acento(?)) ORDER BY nome",
                     (f"%{q}%", f"%{q}%")
                 ).fetchall()
                 rows2 = c.execute(
-                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 AND (LOWER(d.nome) LIKE ? OR LOWER(a.nome) LIKE ?) ORDER BY d.nome",
+                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 AND (sem_acento(d.nome) LIKE sem_acento(?) OR sem_acento(a.nome) LIKE sem_acento(?)) ORDER BY d.nome",
                     (f"%{q}%", f"%{q}%")
                 ).fetchall()
         for r in rows:
@@ -1426,7 +1428,8 @@ class RelatoriosFrame(tk.Frame):
                 FROM emprestimos e
                 JOIN livros l ON l.id=e.livro_id
                 JOIN associados a ON a.id=e.associado_id
-                WHERE a.nome LIKE ? AND l.titulo LIKE ? AND e.dependente_id IS NULL
+                WHERE sem_acento(a.nome) LIKE sem_acento(?) AND sem_acento(l.titulo) LIKE sem_acento(?)
+                  AND e.dependente_id IS NULL
             """, (uq, lq)).fetchall()
             rows += c.execute("""
                 SELECT e.id, l.titulo, d.nome, 'Dependente', e.data_emprestimo,
@@ -1434,7 +1437,7 @@ class RelatoriosFrame(tk.Frame):
                 FROM emprestimos e
                 JOIN livros l ON l.id=e.livro_id
                 JOIN dependentes d ON d.id=e.dependente_id
-                WHERE d.nome LIKE ? AND l.titulo LIKE ?
+                WHERE sem_acento(d.nome) LIKE sem_acento(?) AND sem_acento(l.titulo) LIKE sem_acento(?)
             """, (uq, lq)).fetchall()
         rows.sort(key=lambda r: r[0], reverse=True)
         for eid, titulo, nome, tipo, emp, prev, dev in rows:

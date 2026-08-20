@@ -1,6 +1,11 @@
+import os
 import sqlite3
+import sys
 import unittest
 from datetime import date, timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from biblioteca import normalizar_usuario
 
 DB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS livros (
@@ -52,6 +57,7 @@ class TestBibliotecaDB(unittest.TestCase):
 
     def setUp(self):
         self.conn = sqlite3.connect(":memory:")
+        self.conn.create_function("sem_acento", 1, normalizar_usuario)
         self.conn.executescript(DB_SCHEMA)
         self.conn.execute("PRAGMA foreign_keys = ON")
 
@@ -109,7 +115,7 @@ class TestBibliotecaDB(unittest.TestCase):
         self._add_livro("Astronautas", "Autor X")
         q = "age"
         rows = self.conn.execute(
-            "SELECT id, titulo FROM livros WHERE disponivel>0 AND LOWER(titulo) LIKE ? LIMIT 15",
+            "SELECT id, titulo FROM livros WHERE disponivel>0 AND sem_acento(titulo) LIKE sem_acento(?) LIMIT 15",
             (f"%{q}%",)
         ).fetchall()
         self.assertEqual(len(rows), 1)
@@ -120,7 +126,7 @@ class TestBibliotecaDB(unittest.TestCase):
         self._add_livro("Livro B", "Chico Xavier")
         q = "chico"
         rows = self.conn.execute(
-            "SELECT id, titulo, autor FROM livros WHERE disponivel>0 AND LOWER(autor) LIKE ? LIMIT 15",
+            "SELECT id, titulo, autor FROM livros WHERE disponivel>0 AND sem_acento(autor) LIKE sem_acento(?) LIMIT 15",
             (f"%{q}%",)
         ).fetchall()
         self.assertEqual(len(rows), 1)
@@ -131,7 +137,7 @@ class TestBibliotecaDB(unittest.TestCase):
         self._add_associado("Maria José")
         q = "josé"
         rows = self.conn.execute(
-            "SELECT id, nome FROM associados WHERE ativo=1 AND LOWER(nome) LIKE ? LIMIT 10",
+            "SELECT id, nome FROM associados WHERE ativo=1 AND sem_acento(nome) LIKE sem_acento(?) LIMIT 10",
             (f"%{q}%",)
         ).fetchall()
         self.assertEqual(len(rows), 2)
@@ -142,7 +148,7 @@ class TestBibliotecaDB(unittest.TestCase):
         self.conn.execute("UPDATE associados SET matricula=? WHERE id=?", ("MAT001", a1))
         q = "mat001"
         rows = self.conn.execute(
-            "SELECT id, nome FROM associados WHERE ativo=1 AND LOWER(matricula) LIKE ? LIMIT 10",
+            "SELECT id, nome FROM associados WHERE ativo=1 AND sem_acento(matricula) LIKE sem_acento(?) LIMIT 10",
             (f"%{q}%",)
         ).fetchall()
         self.assertEqual(len(rows), 1)
@@ -157,7 +163,7 @@ class TestBibliotecaDB(unittest.TestCase):
         rows = self.conn.execute(
             """SELECT d.id, d.nome, a.nome FROM dependentes d
                JOIN associados a ON a.id=d.associado_id
-               WHERE d.ativo=1 AND LOWER(d.nome) LIKE ? LIMIT 10""",
+               WHERE d.ativo=1 AND sem_acento(d.nome) LIKE sem_acento(?) LIMIT 10""",
             (f"%{q}%",)
         ).fetchall()
         self.assertEqual(len(rows), 1)
@@ -172,11 +178,27 @@ class TestBibliotecaDB(unittest.TestCase):
         rows = self.conn.execute(
             """SELECT d.id, d.nome, a.nome FROM dependentes d
                JOIN associados a ON a.id=d.associado_id
-               WHERE d.ativo=1 AND LOWER(a.nome) LIKE ? LIMIT 10""",
+               WHERE d.ativo=1 AND sem_acento(a.nome) LIKE sem_acento(?) LIMIT 10""",
             (f"%{q}%",)
         ).fetchall()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][2], "Carlos")
+
+    def test_filtro_ignora_acentos_e_caixa(self):
+        self._add_associado("Irmã Maria")
+        self._add_livro("Ação e Reação", "Autor X")
+        for q in ("irma", "IRMA", "IrmÃ"):
+            rows = self.conn.execute(
+                "SELECT id, nome FROM associados WHERE ativo=1 AND sem_acento(nome) LIKE sem_acento(?) LIMIT 10",
+                (f"%{q}%",)
+            ).fetchall()
+            self.assertEqual(len(rows), 1, f"busca '{q}' deveria encontrar 'Irmã Maria'")
+        for q in ("acao", "AÇÃO", "reação"):
+            rows = self.conn.execute(
+                "SELECT id, titulo FROM livros WHERE disponivel>0 AND sem_acento(titulo) LIKE sem_acento(?) LIMIT 15",
+                (f"%{q}%",)
+            ).fetchall()
+            self.assertEqual(len(rows), 1, f"busca '{q}' deveria encontrar 'Ação e Reação'")
 
     # ─── LOAN REGISTRATION ──────────────────────────────────────────────────────
 

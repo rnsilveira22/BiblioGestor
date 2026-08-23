@@ -38,6 +38,7 @@ env/
 *.sqlite3
 
 # Arquivos temporários
+.sessao_reinicio.json
 
 !BiblioGestor/BIBLIOTECA_CATEGORIZADA.xlsx
 *.log

@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 RAIZ_APP    = os.path.dirname(os.path.abspath(__file__))
 DB_FILE     = os.path.join(RAIZ_APP, "biblioteca.db")
+BACKUP_DIR  = os.path.join(RAIZ_APP, "database")
 VERSAO      = "1.0.0"
 SESSAO_REINICIO = os.path.join(RAIZ_APP, ".sessao_reinicio.json")
 REPO_GITHUB = "rnsilveira22/BiblioGestor"
@@ -38,7 +39,26 @@ def get_conn():
     conn.create_function("sem_acento", 1, normalizar_usuario)
     return conn
 
+def _ultimo_backup():
+    """Retorna o caminho do backup mais recente do banco (ou None)."""
+    if not os.path.isdir(BACKUP_DIR):
+        return None
+    backups = [os.path.join(BACKUP_DIR, f) for f in os.listdir(BACKUP_DIR)
+               if f.startswith("biblioteca_backup_") and f.endswith(".db")]
+    return max(backups, key=os.path.getmtime) if backups else None
+
+def _restaurar_backup():
+    """Restaura o banco a partir do backup mais recente, se existir."""
+    backup = _ultimo_backup()
+    if not backup:
+        return False
+    shutil.copy2(backup, DB_FILE)
+    logger.warning("Banco de dados restaurado a partir do backup: %s", backup)
+    return True
+
 def init_db():
+    if not os.path.exists(DB_FILE) and _ultimo_backup():
+        _restaurar_backup()
     with get_conn() as c:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS livros (
@@ -1614,8 +1634,8 @@ class AtualizacaoFrame(tk.Frame):
     def _consultar_remoto(self):
         """Consulta o repositório e retorna (commits atrás, commits à frente)."""
         self._git("fetch", "origin")
-        atras = int(self._git("rev-list", "--count", "HEAD..origin/main") or 0)
-        adiant = int(self._git("rev-list", "--count", "origin/main..HEAD") or 0)
+        atras = int(self._git("rev-list", "--count", "HEAD..origin/master") or 0)
+        adiant = int(self._git("rev-list", "--count", "origin/master..HEAD") or 0)
         return atras, adiant
 
     def _msg_nova_versao(self, atras, adiant):
@@ -1745,9 +1765,9 @@ class AtualizacaoFrame(tk.Frame):
     def _instalar(self):
         try:
             self._status("1/5 — Fazendo backup do banco de dados…", 25)
-            os.makedirs(os.path.join(RAIZ_APP, "database"), exist_ok=True)
+            os.makedirs(BACKUP_DIR, exist_ok=True)
             backup = os.path.join(
-                RAIZ_APP, "database",
+                BACKUP_DIR,
                 f"biblioteca_backup_{datetime.now():%Y%m%d_%H%M%S}.db")
             if os.path.exists(DB_FILE):
                 shutil.copy2(DB_FILE, backup)
@@ -1757,7 +1777,13 @@ class AtualizacaoFrame(tk.Frame):
             self._git("fetch", "origin")
 
             self._status("3/5 — Instalando arquivos da nova versão…", 60)
-            self._git("reset", "--hard", "origin/main")
+            self._git("reset", "--hard", "origin/master")
+
+            if not os.path.exists(DB_FILE):
+                if _restaurar_backup():
+                    logger.warning("Banco ausente após a atualização; restaurado do último backup.")
+                else:
+                    logger.error("Banco ausente após a atualização e nenhum backup disponível.")
 
             self._status("4/5 — Instalando dependências (pip)…", 80)
             req = os.path.join(RAIZ_APP, "requirements.txt")

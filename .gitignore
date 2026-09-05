@@ -36,6 +36,7 @@ env/
 *.db
 *.sqlite
 *.sqlite3
+database/
 
 # Arquivos temporários
 .sessao_reinicio.json

@@ -592,7 +592,8 @@ class LivrosFrame(tk.Frame):
                 ).fetchall()
             else:
                 rows = c.execute(
-                    "SELECT id, numero, titulo, autor, pelo_espirito, categoria, exemplares, disponivel FROM livros"
+                    "SELECT id, numero, titulo, autor, pelo_espirito, categoria, exemplares, disponivel FROM livros "
+                    "ORDER BY sem_acento(titulo) COLLATE NOCASE"
                 ).fetchall()
         if self._sort_col:
             idx = ["ID","Número","Título","Autor","Pelo Espírito","Categoria","Exemplares","Disponíveis"].index(self._sort_col)
@@ -753,7 +754,7 @@ class AssociadosFrame(tk.Frame):
             if key == "tipo":
                 var = tk.StringVar(value=dados.get(key, "Associado") if dados else "Associado")
                 cb = ttk.Combobox(win, textvariable=var,
-                                  values=["Associado", "Professor", "Funcionário", "Visitante"],
+                                  values=["Administrador", "Associado", "Operador"],
                                   state="readonly", width=33, font=FONTE)
                 cb.grid(row=i, column=1, padx=(4, 16), pady=6)
                 entries[key] = var
@@ -1212,11 +1213,13 @@ class EmprestimosFrame(tk.Frame):
         with get_conn() as c:
             if len(q) < 1:
                 rows = c.execute(
-                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 ORDER BY titulo"
+                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 "
+                    "ORDER BY sem_acento(titulo) COLLATE NOCASE"
                 ).fetchall()
             else:
                 rows = c.execute(
-                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 AND (sem_acento(titulo) LIKE sem_acento(?) OR sem_acento(autor) LIKE sem_acento(?)) ORDER BY titulo",
+                    "SELECT id, titulo, autor FROM livros WHERE disponivel > 0 AND (sem_acento(titulo) LIKE sem_acento(?) OR sem_acento(autor) LIKE sem_acento(?)) "
+                    "ORDER BY sem_acento(titulo) COLLATE NOCASE",
                     (f"%{q}%", f"%{q}%")
                 ).fetchall()
         for r in rows:
@@ -1230,18 +1233,22 @@ class EmprestimosFrame(tk.Frame):
         with get_conn() as c:
             if len(q) < 1:
                 rows = c.execute(
-                    "SELECT id, nome FROM associados WHERE ativo=1 ORDER BY nome"
+                    "SELECT id, nome FROM associados WHERE ativo=1 "
+                    "ORDER BY sem_acento(nome) COLLATE NOCASE"
                 ).fetchall()
                 rows2 = c.execute(
-                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 ORDER BY d.nome"
+                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 "
+                    "ORDER BY sem_acento(d.nome) COLLATE NOCASE"
                 ).fetchall()
             else:
                 rows = c.execute(
-                    "SELECT id, nome FROM associados WHERE ativo=1 AND (sem_acento(nome) LIKE sem_acento(?) OR sem_acento(matricula) LIKE sem_acento(?)) ORDER BY nome",
+                    "SELECT id, nome FROM associados WHERE ativo=1 AND (sem_acento(nome) LIKE sem_acento(?) OR sem_acento(matricula) LIKE sem_acento(?)) "
+                    "ORDER BY sem_acento(nome) COLLATE NOCASE",
                     (f"%{q}%", f"%{q}%")
                 ).fetchall()
                 rows2 = c.execute(
-                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 AND (sem_acento(d.nome) LIKE sem_acento(?) OR sem_acento(a.nome) LIKE sem_acento(?)) ORDER BY d.nome",
+                    "SELECT d.id, d.nome, a.nome FROM dependentes d JOIN associados a ON a.id=d.associado_id WHERE d.ativo=1 AND (sem_acento(d.nome) LIKE sem_acento(?) OR sem_acento(a.nome) LIKE sem_acento(?)) "
+                    "ORDER BY sem_acento(d.nome) COLLATE NOCASE",
                     (f"%{q}%", f"%{q}%")
                 ).fetchall()
         for r in rows:
@@ -1283,6 +1290,13 @@ class EmprestimosFrame(tk.Frame):
             self.pessoa_search_var.set(txt)
 
     def refresh(self):
+        self.livro_search_var.set("")
+        self.pessoa_search_var.set("")
+        self._livro_selecionado_id    = None
+        self._pessoa_selecionada_id   = None
+        self._pessoa_tipo             = None
+        self._carregar_livros_lista()
+        self._carregar_pessoas_lista()
         self.tv.delete(*self.tv.get_children())
         with get_conn() as c:
             # Empréstimos de associados (sem dependente)

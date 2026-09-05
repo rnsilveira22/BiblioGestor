@@ -432,7 +432,7 @@ class App(tk.Tk):
             menus = [
                 ("🏠  Painel",        PainelFrame),
                 ("📖  Livros",        LivrosFrame),
-                ("👤  Associados",    AssociadosFrame),
+                ("👤  Leitores",       LeitoresFrame),
                 ("👥  Dependentes",   DependentesFrame),
                 ("🔄  Empréstimos",   EmprestimosFrame),
                 ("↩️  Devoluções",    DevolucoesFrame),
@@ -517,7 +517,7 @@ class PainelFrame(tk.Frame):
 
         cards = [
             ("📚 Livros\nCadastrados",   tot_livros,  COR_AZUL),
-            ("👤 Associados\nAtivos",    tot_assoc,   COR_VERDE),
+            ("👤 Leitores\nAtivos",      tot_assoc,   COR_VERDE),
             ("🔄 Empréstimos\nAbertos",  em_aberto,   COR_LARANJA),
             ("⚠️ Em Atraso",            atrasados,   COR_VERMELHO),
         ]
@@ -724,9 +724,9 @@ class LivrosFrame(tk.Frame):
         logger.info("Livro ID=%d excluído", lid)
         self.refresh()
 
-# ─── ASSOCIADOS ────────────────────────────────────────────────────────────────
+# ─── LEITORES ───────────────────────────────────────────────────────────────
 
-class AssociadosFrame(tk.Frame):
+class LeitoresFrame(tk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent, bg=COR_FUNDO)
         self.app = app
@@ -735,7 +735,7 @@ class AssociadosFrame(tk.Frame):
     def _build(self):
         top = tk.Frame(self, bg=COR_FUNDO)
         top.pack(fill="x", padx=30, pady=(20, 10))
-        label(top, "👤  Gerenciar Associados", bold=True, font=FONTE_TITULO).pack(side="left")
+        label(top, "👤  Gerenciar Leitores", bold=True, font=FONTE_TITULO).pack(side="left")
 
         btn_frame = tk.Frame(top, bg=COR_FUNDO)
         btn_frame.pack(side="right")

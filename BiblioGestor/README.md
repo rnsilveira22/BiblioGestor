@@ -11,7 +11,7 @@ Desenvolvido em Python com Tkinter e SQLite, para **Casa Espírita Joana Lima**.
 |---|---|
 | **Painel** | Resumo geral e empréstimos em aberto |
 | **Livros** | Cadastro com busca por título, autor e categoria |
-| **Associados** | Cadastro de associados com tipo, matrícula e contatos |
+| **Leitores** | Cadastro de leitores com tipo, matrícula e contatos |
 | **Dependentes** | Dependentes vinculados a associados |
 | **Empréstimos** | Busca inteligente por livro e mutuário (associado/dependente), com autocomplete |
 | **Devoluções** | Confirmação simples de devolução |

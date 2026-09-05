@@ -21,6 +21,12 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
+try:
+    import tkcalendar
+    TKCALENDAR_AVAILABLE = True
+except ImportError:
+    TKCALENDAR_AVAILABLE = False
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -254,13 +260,32 @@ def style_btn(btn, cor=COR_AZUL):
                activebackground=cor, activeforeground="white",
                padx=14, pady=6, cursor="hand2", bd=0)
 
+def _tom_claro(cor, frac=0.75):
+    c = cor.lstrip("#")
+    r, g, b = (int(c[i:i + 2], 16) for i in (0, 2, 4))
+    mist = lambda v: int(v + (255 - v) * frac)
+    return f"#{mist(r):02X}{mist(g):02X}{mist(b):02X}"
+
+def set_btn(btn, cor, ativo):
+    """Habilita/desabilita um botão de ação; quando desabilitado, fica esmaecido."""
+    if ativo:
+        btn.config(state="normal", bg=cor, fg="white", cursor="hand2",
+                   activebackground=cor, activeforeground="white",
+                   disabledforeground=cor)
+    else:
+        bg = _tom_claro(cor)
+        btn.config(state="disabled", bg=bg, fg=cor, cursor="",
+                   activebackground=bg, activeforeground=cor,
+                   disabledforeground=cor)
+
 def entry_widget(parent, **kw):
     return tk.Entry(parent, bg=COR_CARD, fg=COR_TEXTO, insertbackground=COR_TEXTO,
                     relief="flat", font=FONTE, **kw)
 
 def label(parent, text, cor=COR_TEXTO, bold=False, font=None, **kw):
     f = font if font else (FONTE_BOLD if bold else FONTE)
-    return tk.Label(parent, text=text, bg=parent["bg"], fg=cor, font=f, **kw)
+    cor_fundo = kw.pop("bg", parent["bg"])
+    return tk.Label(parent, text=text, bg=cor_fundo, fg=cor, font=f, **kw)
 
 # ─── LOGIN ──────────────────────────────────────────────────────────────────
 
@@ -549,12 +574,18 @@ class LivrosFrame(tk.Frame):
 
         btn_frame = tk.Frame(top, bg=COR_FUNDO)
         btn_frame.pack(side="right")
-        for txt, cmd, cor in [("＋  Novo Livro", self._novo, COR_VERDE),
-                               ("✏️  Editar",    self._editar, COR_AZUL),
-                               ("🗑  Excluir",   self._excluir, COR_VERMELHO)]:
-            b = tk.Button(btn_frame, text=txt, command=cmd)
-            style_btn(b, cor)
-            b.pack(side="left", padx=4)
+        b_novo = tk.Button(btn_frame, text="＋  Novo Livro", command=self._novo)
+        style_btn(b_novo, COR_VERDE)
+        self.btn_novo = b_novo
+        b_novo.pack(side="left", padx=4)
+        b_edi = tk.Button(btn_frame, text="✏️  Editar", command=self._editar)
+        style_btn(b_edi, COR_AZUL)
+        self.btn_editar = b_edi
+        b_edi.pack(side="left", padx=4)
+        b_exc = tk.Button(btn_frame, text="🗑  Excluir", command=self._excluir)
+        style_btn(b_exc, COR_VERMELHO)
+        self.btn_excluir = b_exc
+        b_exc.pack(side="left", padx=4)
 
         busca_frame = tk.Frame(self, bg=COR_FUNDO)
         busca_frame.pack(fill="x", padx=30, pady=(0, 8))
@@ -569,6 +600,8 @@ class LivrosFrame(tk.Frame):
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col, command=lambda c=col: self._sort(c))
             self.tv.column(col, width=w, anchor="w" if col in ("Título", "Autor", "Pelo Espírito") else "center")
+        self.tv.bind("<<TreeviewSelect>>", lambda e: self._atualizar_botoes_livros())
+        self._atualizar_botoes_livros()
 
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
@@ -580,9 +613,15 @@ class LivrosFrame(tk.Frame):
         self._sort_col = col
         self.refresh()
 
+    def _atualizar_botoes_livros(self):
+        tem = bool(self.tv.selection())
+        set_btn(self.btn_editar, COR_AZUL, tem)
+        set_btn(self.btn_excluir, COR_VERMELHO, tem)
+
     def refresh(self):
         q = self.busca_var.get().strip().lower() if hasattr(self, "busca_var") else ""
         self.tv.delete(*self.tv.get_children())
+        self._atualizar_botoes_livros()
         with get_conn() as c:
             if q:
                 rows = c.execute(
@@ -700,12 +739,18 @@ class AssociadosFrame(tk.Frame):
 
         btn_frame = tk.Frame(top, bg=COR_FUNDO)
         btn_frame.pack(side="right")
-        for txt, cmd, cor in [("＋  Novo", self._novo, COR_VERDE),
-                               ("✏️  Editar", self._editar, COR_AZUL),
-                               ("🗑  Excluir", self._excluir, COR_VERMELHO)]:
-            b = tk.Button(btn_frame, text=txt, command=cmd)
-            style_btn(b, cor)
-            b.pack(side="left", padx=4)
+        b_novo = tk.Button(btn_frame, text="＋  Novo", command=self._novo)
+        style_btn(b_novo, COR_VERDE)
+        self.btn_novo = b_novo
+        b_novo.pack(side="left", padx=4)
+        b_edi = tk.Button(btn_frame, text="✏️  Editar", command=self._editar)
+        style_btn(b_edi, COR_AZUL)
+        self.btn_editar = b_edi
+        b_edi.pack(side="left", padx=4)
+        b_exc = tk.Button(btn_frame, text="🗑  Excluir", command=self._excluir)
+        style_btn(b_exc, COR_VERMELHO)
+        self.btn_excluir = b_exc
+        b_exc.pack(side="left", padx=4)
 
         busca_frame = tk.Frame(self, bg=COR_FUNDO)
         busca_frame.pack(fill="x", padx=30, pady=(0, 8))
@@ -720,15 +765,23 @@ class AssociadosFrame(tk.Frame):
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col)
             self.tv.column(col, width=w, anchor="w" if col in ("Nome", "Email") else "center")
+        self.tv.bind("<<TreeviewSelect>>", lambda e: self._atualizar_botoes_associados())
+        self._atualizar_botoes_associados()
 
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
         self.tv.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(0, 20))
         sb.pack(side="left", fill="y", pady=(0, 20), padx=(0, 10))
 
+    def _atualizar_botoes_associados(self):
+        tem = bool(self.tv.selection())
+        set_btn(self.btn_editar, COR_AZUL, tem)
+        set_btn(self.btn_excluir, COR_VERMELHO, tem)
+
     def refresh(self):
         q = self.busca_var.get().strip().lower() if hasattr(self, "busca_var") else ""
         self.tv.delete(*self.tv.get_children())
+        self._atualizar_botoes_associados()
         if q:
             with get_conn() as c:
                 rows = c.execute(
@@ -827,12 +880,18 @@ class DependentesFrame(tk.Frame):
 
         btn_frame = tk.Frame(top, bg=COR_FUNDO)
         btn_frame.pack(side="right")
-        for txt, cmd, cor in [("＋  Novo", self._novo, COR_VERDE),
-                               ("✏️  Editar", self._editar, COR_AZUL),
-                               ("🗑  Excluir", self._excluir, COR_VERMELHO)]:
-            b = tk.Button(btn_frame, text=txt, command=cmd)
-            style_btn(b, cor)
-            b.pack(side="left", padx=4)
+        b_novo = tk.Button(btn_frame, text="＋  Novo", command=self._novo)
+        style_btn(b_novo, COR_VERDE)
+        self.btn_novo = b_novo
+        b_novo.pack(side="left", padx=4)
+        b_edi = tk.Button(btn_frame, text="✏️  Editar", command=self._editar)
+        style_btn(b_edi, COR_AZUL)
+        self.btn_editar = b_edi
+        b_edi.pack(side="left", padx=4)
+        b_exc = tk.Button(btn_frame, text="🗑  Excluir", command=self._excluir)
+        style_btn(b_exc, COR_VERMELHO)
+        self.btn_excluir = b_exc
+        b_exc.pack(side="left", padx=4)
 
         # Filtro por associado
         filtro_frame = tk.Frame(self, bg=COR_FUNDO)
@@ -852,16 +911,24 @@ class DependentesFrame(tk.Frame):
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col)
             self.tv.column(col, width=w, anchor="w" if col in ("Nome", "Email", "Associado") else "center")
+        self.tv.bind("<<TreeviewSelect>>", lambda e: self._atualizar_botoes_dependentes())
+        self._atualizar_botoes_dependentes()
 
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
         self.tv.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(0, 20))
         sb.pack(side="left", fill="y", pady=(0, 20), padx=(0, 10))
 
+    def _atualizar_botoes_dependentes(self):
+        tem = bool(self.tv.selection())
+        set_btn(self.btn_editar, COR_AZUL, tem)
+        set_btn(self.btn_excluir, COR_VERMELHO, tem)
+
     def refresh(self):
         q = self.busca_var.get().strip().lower() if hasattr(self, "busca_var") else ""
         assoc_q = self.assoc_var.get().strip().lower() if hasattr(self, "assoc_var") else ""
         self.tv.delete(*self.tv.get_children())
+        self._atualizar_botoes_dependentes()
         with get_conn() as c:
             rows = c.execute("""
                 SELECT d.id, a.nome, d.nome, d.parentesco, d.telefone, d.email
@@ -1189,8 +1256,15 @@ class EmprestimosFrame(tk.Frame):
         style_btn(b, COR_VERDE)
         b.grid(row=2, column=2, columnspan=2, pady=6)
 
-        label(self, "Empréstimos em Aberto", bold=True,
-              font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=30, pady=(4, 6))
+        header = tk.Frame(self, bg=COR_FUNDO)
+        header.pack(fill="x", padx=30, pady=(4, 6))
+        label(header, "Empréstimos em Aberto", bold=True,
+              font=("Segoe UI", 11, "bold")).pack(side="left")
+        b_edi = tk.Button(header, text="✏️  Editar Data Prevista",
+                          command=self._editar_data_prevista)
+        style_btn(b_edi, COR_AZUL)
+        self.btn_editar_data = b_edi
+        b_edi.pack(side="right")
 
         cols = ("ID", "Livro", "Pessoa", "Tipo", "Empréstimo", "Prevista", "Status")
         self.tv = ttk.Treeview(self, columns=cols, show="headings", height=14)
@@ -1198,6 +1272,7 @@ class EmprestimosFrame(tk.Frame):
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col)
             self.tv.column(col, width=w, anchor="w" if col in ("Livro", "Pessoa") else "center")
+        self.tv.bind("<<TreeviewSelect>>", lambda e: self._atualizar_botoes_emprestimo())
 
         sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
@@ -1298,6 +1373,7 @@ class EmprestimosFrame(tk.Frame):
         self._carregar_livros_lista()
         self._carregar_pessoas_lista()
         self.tv.delete(*self.tv.get_children())
+        self._atualizar_botoes_emprestimo()
         with get_conn() as c:
             # Empréstimos de associados (sem dependente)
             rows = c.execute("""
@@ -1372,6 +1448,24 @@ class EmprestimosFrame(tk.Frame):
         self._carregar_pessoas_lista()
         self.refresh()
 
+    def _atualizar_botoes_emprestimo(self):
+        set_btn(self.btn_editar_data, COR_AZUL, bool(self.tv.selection()))
+
+    def _editar_data_prevista(self):
+        sel = self.tv.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione um empréstimo em aberto.")
+            return
+        eid = self.tv.item(sel[0])["values"][0]
+        with get_conn() as c:
+            emp = c.execute(
+                "SELECT data_emprestimo, data_prevista FROM emprestimos WHERE id=?",
+                (eid,)).fetchone()
+        if emp is None:
+            messagebox.showerror("Erro", "Empréstimo não encontrado.")
+            return
+        _editar_data_prevista_dialog(self, eid, emp[0], emp[1])
+
 # ─── DEVOLUÇÕES ────────────────────────────────────────────────────────────────
 
 class DevolucoesFrame(tk.Frame):
@@ -1385,26 +1479,59 @@ class DevolucoesFrame(tk.Frame):
         top.pack(fill="x", padx=30, pady=(20, 10))
         label(top, "↩️  Registrar Devolução", bold=True, font=FONTE_TITULO).pack(side="left")
 
+        btn_frame = tk.Frame(self, bg=COR_FUNDO)
+        btn_frame.pack(side="bottom", fill="x", padx=30, pady=(0, 20))
+        b = tk.Button(btn_frame, text="↩️  Confirmar Devolução Selecionada", command=self._devolver)
+        style_btn(b, COR_LARANJA)
+        self.btn_devolver = b
+        b.pack(side="left")
+        b_edi = tk.Button(btn_frame, text="✏️  Editar Data Prevista",
+                          command=self._editar_data_prevista)
+        style_btn(b_edi, COR_AZUL)
+        self.btn_editar_data = b_edi
+        b_edi.pack(side="left", padx=(8, 0))
+
+        cards_frame = tk.Frame(self, bg=COR_FUNDO)
+        cards_frame.pack(side="bottom", fill="both", expand=True, padx=30, pady=(0, 8))
+
         cols = ("ID", "Livro", "Pessoa", "Tipo", "Emprestado em", "Prevista", "Status")
-        self.tv = ttk.Treeview(self, columns=cols, show="headings", height=18)
+        self.tv = ttk.Treeview(cards_frame, columns=cols, show="headings", height=18)
         widths = [40, 240, 150, 80, 110, 110, 100]
         for col, w in zip(cols, widths):
             self.tv.heading(col, text=col)
             self.tv.column(col, width=w, anchor="w" if col in ("Livro", "Pessoa") else "center")
 
-        sb = ttk.Scrollbar(self, orient="vertical", command=self.tv.yview)
+        sb = ttk.Scrollbar(cards_frame, orient="vertical", command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
-        self.tv.pack(side="left", fill="both", expand=True, padx=(30, 0), pady=(0, 8))
-        sb.pack(side="left", fill="y", pady=(0, 8), padx=(0, 10))
+        self.tv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y", padx=(0, 10))
+        self.tv.bind("<<TreeviewSelect>>",
+                     lambda e: self._atualizar_botoes_devolucao())
+        self._atualizar_botoes_devolucao()
 
-        btn_frame = tk.Frame(self, bg=COR_FUNDO)
-        btn_frame.pack(fill="x", padx=30, pady=(0, 20))
-        b = tk.Button(btn_frame, text="↩️  Confirmar Devolução Selecionada", command=self._devolver)
-        style_btn(b, COR_LARANJA)
-        b.pack(side="left")
+    def _atualizar_botoes_devolucao(self):
+        tem = bool(self.tv.selection())
+        set_btn(self.btn_devolver, COR_LARANJA, tem)
+        set_btn(self.btn_editar_data, COR_AZUL, tem)
+
+    def _editar_data_prevista(self):
+        sel = self.tv.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione um empréstimo.")
+            return
+        eid = self.tv.item(sel[0])["values"][0]
+        with get_conn() as c:
+            emp = c.execute(
+                "SELECT data_emprestimo, data_prevista FROM emprestimos WHERE id=?",
+                (eid,)).fetchone()
+        if emp is None:
+            messagebox.showerror("Erro", "Empréstimo não encontrado.")
+            return
+        _editar_data_prevista_dialog(self, eid, emp[0], emp[1])
 
     def refresh(self):
         self.tv.delete(*self.tv.get_children())
+        self._atualizar_botoes_devolucao()
         with get_conn() as c:
             # Empréstimos de associados (sem dependente)
             rows = c.execute("""
@@ -1863,6 +1990,95 @@ def _modal(parent, titulo):
     win.resizable(False, False)
     win.geometry("+%d+%d" % (parent.winfo_rootx()+120, parent.winfo_rooty()+80))
     return win
+
+def _abrir_calendario(parent, entry, data_inicial=None):
+    """Abre um calendário visual; ao selecionar, preenche a Entry (dd/mm/aaaa)."""
+    if not TKCALENDAR_AVAILABLE:
+        messagebox.showinfo("Aviso", "O calendário visual não está disponível na instalação.",
+                            parent=parent)
+        return
+    win = tk.Toplevel(parent)
+    win.title("📅 Selecionar data")
+    win.configure(bg=COR_PAINEL)
+    win.grab_set()
+    win.resizable(False, False)
+    win.geometry("+%d+%d" % (parent.winfo_rootx()+160, parent.winfo_rooty()+90))
+    try:
+        d = datetime.strptime(data_inicial, "%d/%m/%Y")
+    except (ValueError, TypeError):
+        d = date.today()
+    cal = tkcalendar.Calendar(win, selectmode="day", date_pattern="dd/mm/yyyy",
+                              year=d.year, month=d.month, day=d.day,
+                              background=COR_PAINEL, foreground=COR_TEXTO,
+                              headersbackground=COR_AZUL, headersforeground="white",
+                              selectbackground=COR_AZUL, selectforeground="white",
+                              normalbackground=COR_CARD, normalforeground=COR_TEXTO,
+                              weekendbackground=COR_CARD, weekendforeground=COR_VERMELHO,
+                              othermonthbackground=COR_CARD, othermonthforeground=COR_SUBTEXTO)
+    cal.pack(padx=12, pady=12)
+
+    def escolher():
+        entry.delete(0, "end")
+        entry.insert(0, cal.get_date())
+        win.destroy()
+        entry.focus_set()
+    b = tk.Button(win, text="✅  Selecionar", command=escolher)
+    style_btn(b, COR_VERDE)
+    b.pack(pady=(0, 12))
+
+def _editar_data_prevista_dialog(parent, eid, data_emp, data_prev):
+    """Diálogo para alterar a data prevista de devolução de um empréstimo."""
+    win = _modal(parent, "Editar Data Prevista")
+    tk.Label(win, text="Nova data prevista (dd/mm/aaaa):", bg=COR_PAINEL,
+             fg=COR_TEXTO, font=FONTE).grid(row=0, column=0, padx=16, pady=(14, 4), sticky="w")
+
+    campo = tk.Frame(win, bg=COR_PAINEL)
+    campo.grid(row=1, column=0, padx=16, pady=(0, 4), sticky="w")
+    e = entry_widget(campo, width=12)
+    e.insert(0, fmt(data_prev))
+    e.pack(side="left", padx=(0, 4))
+    b_cal = tk.Button(campo, text="📅",
+                      command=lambda: _abrir_calendario(campo, e, fmt(data_prev)))
+    style_btn(b_cal, COR_AZUL)
+    b_cal.pack(side="left")
+
+    tk.Label(win, text=f"Data do empréstimo: {fmt(data_emp)}", bg=COR_PAINEL,
+             fg=COR_SUBTEXTO, font=FONTE).grid(row=2, column=0, padx=16, sticky="w")
+    e.focus_set()
+    e.select_range(0, "end")
+
+    erro_lbl = tk.Label(win, text="", bg=COR_PAINEL, fg=COR_VERMELHO, font=FONTE)
+    erro_lbl.grid(row=3, column=0, padx=16, sticky="w")
+
+    def validar_data(texto):
+        texto = texto.strip()
+        for fmt_t in ("%d/%m/%Y", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(texto, fmt_t)
+            except (ValueError, TypeError):
+                continue
+        return None
+
+    def salvar(event=None):
+        nova = validar_data(e.get())
+        if not nova:
+            erro_lbl.config(text="Data inválida. Use o formato dd/mm/aaaa.")
+            return
+        nova_iso = nova.strftime("%Y-%m-%d")
+        if nova_iso < data_emp:
+            erro_lbl.config(text="A data prevista não pode ser anterior à data do empréstimo.")
+            return
+        with get_conn() as c:
+            c.execute("UPDATE emprestimos SET data_prevista=? WHERE id=?",
+                      (nova_iso, eid))
+        logger.info("Empréstimo ID=%d: data prevista alterada para %s", eid, nova_iso)
+        win.destroy()
+        parent.refresh()
+
+    b = tk.Button(win, text="💾  Salvar", command=salvar)
+    style_btn(b, COR_VERDE)
+    b.grid(row=4, column=0, pady=14)
+    win.bind("<Return>", salvar)
 
 def _style_tree():
     style = ttk.Style()

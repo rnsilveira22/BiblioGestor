@@ -1254,6 +1254,7 @@ class EmprestimosFrame(tk.Frame):
 
         b = tk.Button(form, text="✅  Registrar Empréstimo", command=self._registrar)
         style_btn(b, COR_VERDE)
+        self.btn_registrar_emprestimo = b
         b.grid(row=2, column=2, columnspan=2, pady=6)
 
         header = tk.Frame(self, bg=COR_FUNDO)
@@ -1339,12 +1340,14 @@ class EmprestimosFrame(tk.Frame):
         q = self.livro_search_var.get().strip().lower()
         self._livro_selecionado_id = None
         self._carregar_livros_lista(q)
+        self._atualizar_botoes_emprestimo()
 
     def _filtrar_pessoas_lista(self, event=None):
         q = self.pessoa_search_var.get().strip().lower()
         self._pessoa_selecionada_id = None
         self._pessoa_tipo = None
         self._carregar_pessoas_lista(q)
+        self._atualizar_botoes_emprestimo()
 
     def _on_livro_lista_select(self, event=None):
         sel = self.livro_listbox.curselection()
@@ -1354,6 +1357,7 @@ class EmprestimosFrame(tk.Frame):
         if txt in self._livros_resultados:
             self._livro_selecionado_id = self._livros_resultados[txt]
             self.livro_search_var.set(txt)
+        self._atualizar_botoes_emprestimo()
 
     def _on_pessoa_lista_select(self, event=None):
         sel = self.pessoa_listbox.curselection()
@@ -1363,6 +1367,7 @@ class EmprestimosFrame(tk.Frame):
         if txt in self._pessoas_resultados:
             self._pessoa_selecionada_id, self._pessoa_tipo = self._pessoas_resultados[txt]
             self.pessoa_search_var.set(txt)
+        self._atualizar_botoes_emprestimo()
 
     def refresh(self):
         self.livro_search_var.set("")
@@ -1449,7 +1454,11 @@ class EmprestimosFrame(tk.Frame):
         self.refresh()
 
     def _atualizar_botoes_emprestimo(self):
-        set_btn(self.btn_editar_data, COR_AZUL, bool(self.tv.selection()))
+        tem = bool(self.tv.selection())
+        set_btn(self.btn_editar_data, COR_AZUL, tem)
+        habilitar_registro = (getattr(self, "_livro_selecionado_id", None) is not None
+                              and getattr(self, "_pessoa_selecionada_id", None) is not None)
+        set_btn(self.btn_registrar_emprestimo, COR_VERDE, habilitar_registro)
 
     def _editar_data_prevista(self):
         sel = self.tv.selection()
@@ -1736,6 +1745,58 @@ class AtualizacaoFrame(tk.Frame):
                                        command=self._atualizar)
         style_btn(self.btn_atualizar, COR_VERDE)
         self.btn_atualizar.pack(side="left", padx=(10, 0))
+        self.btn_restaurar = tk.Button(bf, text="🔄 Restaurar último backup",
+                                       command=self._restaurar)
+        style_btn(self.btn_restaurar, COR_LARANJA)
+        self.btn_restaurar.pack(side="left", padx=(10, 0))
+
+        backup = _ultimo_backup()
+        info = (f"Último backup do banco: {datetime.fromtimestamp(os.path.getmtime(backup)):%d/%m/%Y %H:%M}"
+                if backup else f"Nenhum backup encontrado em {BACKUP_DIR}.")
+        self.lbl_backup = label(card, cor=COR_SUBTEXTO, text=info)
+        self.lbl_backup.pack(anchor="w", padx=20, pady=(0, 12))
+
+    def _bloquear(self):
+        def _aplicar():
+            for b in (self.btn_verificar, self.btn_atualizar, self.btn_restaurar):
+                b.config(state="disabled")
+        self.after(0, _aplicar)
+
+    def _liberar(self):
+        def _aplicar():
+            self._ocupado = False
+            for b in (self.btn_verificar, self.btn_atualizar, self.btn_restaurar):
+                b.config(state="normal")
+        self.after(0, _aplicar)
+
+    def _restaurar(self):
+        if self._ocupado:
+            return
+        backup = _ultimo_backup()
+        if not backup:
+            messagebox.showinfo("Nenhum backup",
+                                f"Não há nenhum backup do banco em {BACKUP_DIR}.",
+                                parent=self)
+            return
+        data = datetime.fromtimestamp(os.path.getmtime(backup))
+        if not messagebox.askyesno(
+                "Restaurar último backup",
+                f"Restaurar o banco de dados para o backup de {data:%d/%m/%Y %H:%M}?\n\n"
+                "⚠️ Os dados inseridos APÓS essa data serão perdidos.\n"
+                "O BiblioGestor será reiniciado para concluir a restauração.\n\n"
+                "Deseja continuar?", parent=self):
+            return
+        try:
+            shutil.copy2(backup, DB_FILE)
+            logger.warning("Banco restaurado manualmente a partir do backup: %s", backup)
+            messagebox.showinfo("Restauração",
+                                "Banco de dados restaurado. Reiniciando o sistema…", parent=self)
+            subprocess.Popen([sys.executable, os.path.join(RAIZ_APP, "biblioteca.py")],
+                             cwd=RAIZ_APP)
+            self.after(0, self.app.destroy)
+        except Exception as e:
+            logger.exception("Falha ao restaurar backup")
+            messagebox.showerror("Erro na restauração", str(e), parent=self)
 
     def _texto_versao(self):
         commit = "?"
@@ -1794,19 +1855,6 @@ class AtualizacaoFrame(tk.Frame):
             "Por favor, conecte-se à internet para verificar e baixar "
             "as atualizações e tente novamente.",
             parent=self)
-
-    def _bloquear(self):
-        def _aplicar():
-            self.btn_verificar.config(state="disabled")
-            self.btn_atualizar.config(state="disabled")
-        self.after(0, _aplicar)
-
-    def _liberar(self):
-        def _aplicar():
-            self._ocupado = False
-            self.btn_verificar.config(state="normal")
-            self.btn_atualizar.config(state="normal")
-        self.after(0, _aplicar)
 
     def _verificar(self):
         if self._ocupado:

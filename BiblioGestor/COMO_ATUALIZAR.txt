@@ -1,0 +1,65 @@
+============================================================
+  BiblioGestor — Como atualizar o sistema
+  Casa Espírita Joana Lima
+============================================================
+
+Existem duas formas de atualizar. Em ambas o banco de dados
+(biblioteca.db) NUNCA é apagado ou sobrescrito.
+
+
+----------------------------------------------------------
+1) ATUALIZAÇÃO ONLINE (pelo link — WhatsApp / e-mail)
+----------------------------------------------------------
+
+1. Feche o BiblioGestor completamente.
+2. Clique no link que você recebeu e baixe o arquivo:
+      Atualizar_BiblioGestor.exe
+3. Salve o arquivo em qualquer pasta (Área de Trabalho, por exemplo).
+4. Clique duas vezes no arquivo baixado.
+5. Se pedir a pasta do BiblioGestor, selecione a pasta onde
+   o sistema está instalado.
+6. Aguarde a mensagem de sucesso.
+7. Abra o BiblioGestor normalmente.
+
+
+----------------------------------------------------------
+2) ATUALIZAÇÃO OFFLINE (pendrive)
+----------------------------------------------------------
+
+No pendrive deve existir:
+  - Atualizar_BiblioGestor.exe   (ou o .bat + atualizador.py)
+  - pasta  pacote_atualizacao\  (com os arquivos novos)
+
+Passos:
+1. Feche o BiblioGestor.
+2. Conecte o pendrive.
+3. Abra o pendrive e execute Atualizar_BiblioGestor.exe
+4. Se pedir a pasta, selecione onde o BiblioGestor está instalado.
+5. Aguarde a mensagem de sucesso.
+6. Abra o BiblioGestor.
+
+
+----------------------------------------------------------
+O que o atualizador faz?
+----------------------------------------------------------
+
+• Faz backup automático do banco (pasta database\)
+• Baixa / copia apenas os arquivos de programa
+• NÃO mexe no biblioteca.db
+• NÃO mexe na pasta database\
+• Mostra tudo na tela para você acompanhar
+
+
+----------------------------------------------------------
+Em caso de problema
+----------------------------------------------------------
+
+• O banco de dados continua seguro.
+• Os backups ficam na pasta:
+      [pasta do BiblioGestor]\database\
+• Se precisar, restaure o arquivo mais recente
+  (biblioteca_backup_AAAAMMDD_HHMMSS.db)
+  renomeando-o para biblioteca.db
+
+
+============================================================

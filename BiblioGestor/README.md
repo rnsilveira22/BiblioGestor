@@ -17,7 +17,6 @@ Desenvolvido em Python com Tkinter e SQLite, para **Casa Espírita Joana Lima**.
 | **Devoluções** | Confirmação simples de devolução |
 | **Relatórios** | Histórico, em aberto, livros mais emprestados |
 | **Usuários** | Gestão de usuários e níveis de acesso (somente Administrador) |
-| **Atualizar** | Atualização automática do sistema via GitHub (somente Administrador) |
 
 Recursos adicionais:
 - Busca sem diferenciar acentos e maiúsculas/minúsculas
@@ -61,24 +60,41 @@ Na primeira execução o sistema cria o usuário padrão:
 - Senha: `admin123`
 
 Tipos de usuário:
-- **Administrador** — acesso a todos os módulos, incluindo Usuários e Atualizar
+- **Administrador** — acesso a todos os módulos, incluindo Usuários
 - **Operador** — acesso somente a Empréstimos e Devoluções
 
 Novos usuários são criados pelo menu **Usuários** (somente Administradores).
-O login é preservado automaticamente após atualizações do sistema.
 
 ---
 
 ## Atualização do Sistema
 
-No menu **Atualizar**, o sistema:
-1. Verifica no GitHub (`rnsilveira22/BiblioGestor`) se há nova versão
-2. Faz backup automático do banco de dados
-3. Baixa e instala a nova versão
-4. Reinicia o aplicativo mantendo o login
+A atualização é feita por um **atualizador externo** (não precisa de Git).
 
-Também é possível **restaurar o último backup** do banco pela mesma tela
-(ou o backup é restaurado automaticamente se o `biblioteca.db` for perdido).
+### Online (link por WhatsApp / e-mail)
+
+1. Feche o BiblioGestor
+2. Baixe e execute o arquivo `Atualizar_BiblioGestor.exe`
+3. Se pedir, selecione a pasta onde o sistema está instalado
+4. Aguarde a mensagem de sucesso e abra o sistema novamente
+
+### Offline (pendrive)
+
+Coloque no pendrive:
+- `Atualizar_BiblioGestor.exe`
+- pasta `pacote_atualizacao\` (com os arquivos novos)
+
+Execute o atualizador e escolha a pasta de instalação.
+
+**O banco de dados (`biblioteca.db`) nunca é sobrescrito.**  
+Antes de cada atualização é gerado um backup em `database/`.
+
+Instruções detalhadas: veja o arquivo `COMO_ATUALIZAR.txt`.
+
+Para gerar o `.exe` do atualizador:
+```bash
+build_atualizador.bat
+```
 
 ---
 
@@ -117,16 +133,20 @@ python tests/test_biblioteca.py
 
 ```
 BiblioGestor/
-├── biblioteca.py           # Arquivo principal (aplicação)
-├── config.py               # Configurações, cores e constantes
-├── importar_livros.py      # Importação do acervo a partir do Excel
-├── requirements.txt        # Dependências
+├── biblioteca.py              # Arquivo principal (aplicação)
+├── config.py                  # Configurações, cores e constantes
+├── importar_livros.py         # Importação do acervo a partir do Excel
+├── requirements.txt           # Dependências
+├── atualizador.py             # Atualizador externo (online + offline)
+├── Atualizar_BiblioGestor.bat # Launcher do atualizador
+├── build_atualizador.bat      # Gera o .exe do atualizador
+├── COMO_ATUALIZAR.txt         # Instruções para o cliente
 ├── tests/
-│   └── test_biblioteca.py  # Testes unitários
-├── BiblioGestor.bat        # Atalho de execução (Windows)
-├── instalar_e_abrir.bat    # Instala dependências e inicia (Windows)
-├── build_exe.bat           # Gera o executável (Windows/PyInstaller)
-├── build_macos.sh          # Gera o app (macOS/PyInstaller)
-├── biblioteca.db           # Banco de dados
-└── database/               # Backups automáticos do banco
+│   └── test_biblioteca.py     # Testes unitários
+├── BiblioGestor.bat           # Atalho de execução (Windows)
+├── instalar_e_abrir.bat       # Instala dependências e inicia (Windows)
+├── build_exe.bat              # Gera o executável do sistema (Windows)
+├── build_macos.sh             # Gera o app (macOS)
+├── biblioteca.db              # Banco de dados
+└── database/                  # Backups automáticos do banco
 ```

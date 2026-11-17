@@ -18,8 +18,10 @@ Existem duas formas de atualizar. Em ambas o banco de dados
 4. Clique duas vezes no arquivo baixado.
 5. Se pedir a pasta do BiblioGestor, selecione a pasta onde
    o sistema está instalado.
-6. Aguarde a mensagem de sucesso.
-7. Abra o BiblioGestor normalmente.
+6. O atualizador mostra a versão instalada e a versão nova.
+7. Confirme a atualização quando perguntado.
+8. Aguarde a mensagem de sucesso.
+9. Abra o BiblioGestor normalmente.
 
 
 ----------------------------------------------------------
@@ -27,22 +29,54 @@ Existem duas formas de atualizar. Em ambas o banco de dados
 ----------------------------------------------------------
 
 No pendrive deve existir:
-  - Atualizar_BiblioGestor.exe   (ou o .bat + atualizador.py)
-  - pasta  pacote_atualizacao\  (com os arquivos novos)
+  - Atualizar_BiblioGestor.exe
+  - pasta  pacote_atualizacao\  (com os arquivos da versão)
+    OU um arquivo .zip da versão (ex: BiblioGestor_v1.1.0.zip)
 
 Passos:
 1. Feche o BiblioGestor.
 2. Conecte o pendrive.
 3. Abra o pendrive e execute Atualizar_BiblioGestor.exe
 4. Se pedir a pasta, selecione onde o BiblioGestor está instalado.
-5. Aguarde a mensagem de sucesso.
-6. Abra o BiblioGestor.
+5. Confirme a atualização quando perguntado.
+6. Aguarde a mensagem de sucesso.
+7. Abra o BiblioGestor.
+
+
+----------------------------------------------------------
+CONTROLE DE VERSÃO
+----------------------------------------------------------
+
+O atualizador compara a versão instalada com a versão do pacote:
+
+  • Versão do pacote IGUAL à instalada
+      → Informa que o sistema já está atualizado e encerra.
+
+  • Versão do pacote MAIS NOVA
+      → Pergunta se deseja atualizar. Confirme com S.
+
+  • Versão do pacote MAIS ANTIGA (downgrade)
+      → Mostra um AVISO claro:
+
+          ATENÇÃO: você está tentando instalar uma versão MAIS ANTIGA.
+
+               Versão instalada : 1.2.0
+               Versão do pacote : 1.0.0
+
+          Fazer isso é um DOWNGRADE.
+          O banco de dados será preservado, mas recursos novos
+          da versão atual podem deixar de funcionar.
+
+          Deseja realmente fazer o DOWNGRADE? [S/N]:
+
+      Só continua se você digitar S (sim).
 
 
 ----------------------------------------------------------
 O que o atualizador faz?
 ----------------------------------------------------------
 
+• Lê e compara as versões (instalada x pacote)
 • Faz backup automático do banco (pasta database\)
 • Baixa / copia apenas os arquivos de programa
 • NÃO mexe no biblioteca.db
